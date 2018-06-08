@@ -6,8 +6,8 @@
 --  This script is free software; you can redistribute it and/or   --
 --         modify it under the same terms as Lua5 itself.          --
 ---------------------------------------------------------------------
-local Version = '1.7'  -- if -s is given, use the fluidsynth.lua 1.7 syntax
-local VersionDate  = '04sep2014';
+local Version = '1.8'  -- sosped, maxnotes=20, and nested note_ons
+local VersionDate  = '06feb2015';
 local Synopsis = [[
  fluadity &                     # a simple alsa-client , o/p to soundcard
  fluadity -i ProKeys &          # likewise, and connects from the ProKeys
@@ -16,6 +16,7 @@ local Synopsis = [[
  fluadity /tmp/t.mid /tmp/t.wav # converts midi to wav
  fluadity /tmp/t.mid            # like aplaymidi -p TiMidity /tmp/t.mid
  fluadity - /tmp/t.wav          # like timidity -Ow -o /tmp/t.wav -
+ fluadity -c -d                 # starts a daemon in compatibility_mode
  fluadity -                     # like timidity -
  perldoc fluadity               # read the manual :-)
 ]]
@@ -23,12 +24,13 @@ local Synopsis = [[
 local FS = require 'fluidsynth'
 -- require 'DataDumper'
 
-local Curses     = true
 local InputPort  = nil
 local Soundfonts = {}
 local ClientName = 'fluadity'
 local ConfigFile = nil   -- use the default unless there's a -f option
 local Daemon     = false
+local ALSA       = nil
+local CompatibilityMode = false  -- used by the -c option
 
 local iarg=1; while arg[iarg] ~= nil do
 	if not string.find(arg[iarg], '^-[a-z]') then break end
@@ -38,7 +40,7 @@ local iarg=1; while arg[iarg] ~= nil do
 		print(n.." version "..Version.."  "..VersionDate)
 		os.exit(0)
 	elseif first_letter == 'c' then
-		Curses = true
+		CompatibilityMode = true
 	elseif first_letter == 'd' then
 		Daemon = true
 		if not ConfigFile then ConfigFile = FS.get_sysconf() end
@@ -73,6 +75,12 @@ end
 -- print(DataDumper(Soundfonts))
 
 --------------- infrastructure from pjblib.lua --------------
+local function _debug(s)
+	local DEBUG = io.open('/tmp/debug', 'a')
+	DEBUG:write(s.."\n")
+	DEBUG:close()
+end
+
 local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
 	if not s or string.len(s)<2 then return {s} end
 	if not pattern then return {s} end
@@ -90,6 +98,16 @@ local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
 	end
 	table.insert( result, string.sub(s,theStart,-1) )
 	return result
+end
+
+----- from www.pjb.com.au/comp/lua/midialsa.html#constants -----
+
+local function is_noteoff(alsaevent)
+	if alsaevent[1] == ALSA.SND_SEQ_EVENT_NOTEOFF then return true end
+	if alsaevent[1] == ALSA.SND_SEQ_EVENT_NOTEON and alsaevent[8][3] == 0 then
+		return true
+	end
+	return false
 end
 
 ----------------- the four major function-groups ----------------
@@ -123,11 +141,73 @@ function play_midi()
 	os.remove(FS.error_file_name())
 end
 
+------------- global variables used by the daemon-client -------------
+
+local Synth            = nil
+local Cha2fingerNotes  = { } -- on-notes held by a note_on with no note_off
+local Cha2ped          = { } -- pedal is on ?
+local Cha2pedNotes     = { } -- number of notes being sustained by pedal
+local Cha2sospedNotes  = { } -- notes being sustained by sostenuto-pedal
+-- Cha2notesByTime is a rotating list of <=20 notes, indexed by i%20 0..19
+-- when a new note comes in, if there's a note already at i it
+-- gets note_offed, and the new one note_onned and inserted at i
+-- therefore pedals must be here translated into note_on,note_off
+-- BUT after pedal-off, only the finger-held notes survive,
+--  leaving Cha2notesByTime full of holes. So: either 1) must compactify it,
+--  or 2) remember the pedal-held notes and the finger-held notes separately,
+--  or 3) perhaps only pedal-held notes need this mechanism anyway ? ADOPT!
+local Cha2notesByTime  = { } -- rotating list of 20 indexed by noteindex%20
+local Cha2noteIndex    = { } -- indexes for the above
+local MaxNoteIndex     = 20
+for cha = 0,15 do   -- initialise:
+	Cha2fingerNotes[cha] = {}
+	for note = 0,127 do Cha2fingerNotes[cha][note] = 0 end
+	Cha2notesByTime[cha] = {}
+	Cha2noteIndex[cha]   = 0
+	Cha2ped[cha]         = false
+	Cha2pedNotes[cha]    = {} -- if ped_off and no finger, these get offed
+	for note = 0,127 do Cha2pedNotes[cha][note] = 0 end
+	Cha2sospedNotes[cha] = {} -- if sosped_off and no finger, these get offed
+	for note = 0,127 do Cha2sospedNotes[cha][note] = false end
+end
+
+local function my_note_off (cha, note)
+	-- works round the fluidsynth truncate-sound-on-first-noteoff quirk
+	local howmany = Cha2fingerNotes[cha][note] or 0
+-- _debug("Cha2fingerNotes cha="..tostring(cha).." note="..tostring(note).." howmany="..tostring(howmany))
+	if howmany < 2 then
+		Cha2fingerNotes[cha][note] = 0
+		if not Cha2ped[cha] and not Cha2sospedNotes[cha][note] then
+			FS.play_event(Synth, ALSA.noteoffevent(cha, note, 1))
+		end
+	else 
+		Cha2fingerNotes[cha][note] = howmany - 1
+	end
+end
+
+function remember_note_by_time (cha, note)
+	-- terminates OLDest pedal-held note, not fluidsynth's teminate-NEWest
+	-- only remember notes played under pedal:
+	if not Cha2ped[cha] then return end
+	local i = Cha2noteIndex[cha] % MaxNoteIndex
+	local old_note = Cha2notesByTime[cha][i]
+--_debug("remember_note_by_time cha="..tostring(cha).." note="..tostring(note).." i="..tostring(i).." old_note="..tostring(old_note))
+	if old_note then  -- we check Cha2fingerNotes, Cha2pedNotes
+		if Cha2pedNotes[cha][old_note] > 1 then
+			Cha2pedNotes[cha][old_note] = Cha2pedNotes[cha][old_note] - 1
+		elseif Cha2fingerNotes[cha][old_note] == 0 then
+			FS.play_event(Synth, ALSA.noteoffevent(cha, old_note, 1))
+			Cha2pedNotes[cha][old_note] = 0
+		end
+	end
+	Cha2notesByTime[cha][i] = note
+	Cha2noteIndex[cha] = (i + 1) % MaxNoteIndex -- increment
+end
+
 function daemon_client()
 	local P    = require 'posix'
-	local ALSA = require 'midialsa'
-	-- daemonize and detach ; see Camel book 1991 p216
-	local child_pid = P.fork()
+	ALSA = require 'midialsa'
+	local child_pid = P.fork()   -- daemonize and detach; see Camel 1991 p216
 	if child_pid == 0 then       -- now this is the child
 		local daemon_pid = P.fork()
 		if daemon_pid == 0 then  -- now this is the child's child
@@ -154,25 +234,90 @@ function daemon_client()
 				['audio.period-size']   = 64,  -- min, for low latency
 				['audio.realtime-prio'] = 90,  -- big, lor low latency
 			}
-			local synth = nil
+
 			while true do  -- loop until killed
 				local alsaevent = ALSA.input()
 				if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then
 					-- 1.4 running an inactive synth burns 7% CPU
 					--     with chorus and reverb off it still burns 4.5%
 					local from = ALSA.listconnectedfrom()  -- 1.4
-					if #from == 0 and synth then
-						FS.delete_synth(synth)
-						synth = nil
+					if #from == 0 and Synth then
+						FS.delete_synth(Synth)
+						Synth = nil
 					end
 				elseif alsaevent[1]==ALSA.SND_SEQ_EVENT_PORT_SUBSCRIBED then
 					local from = ALSA.listconnectedfrom()  -- 1.4
-					if #from > 0 and not synth then
-						synth = FS.new_synth( settings )
-						assert(FS.sf_load(synth, Soundfonts))
+					if #from > 0 and not Synth then
+						Synth = FS.new_synth( settings )
+						assert(FS.sf_load(Synth, Soundfonts))
 					end
-				elseif synth then
-					FS.play_event(synth, alsaevent)
+				elseif CompatibilityMode then -- 1.8
+					if Synth then FS.play_event(Synth, alsaevent) end
+				-- should be factored out into a subroutine presumably ...
+				elseif alsaevent[1]==ALSA.SND_SEQ_EVENT_CONTROLLER then -- 1.8
+					local cha   = alsaevent[8][1]
+					local param = alsaevent[8][5]
+					local value = alsaevent[8][6]
+					if  param == 64 then
+						if value >= 64 then
+							Cha2ped[cha] = true
+						else
+							Cha2ped[cha] = false
+							Cha2notesByTime[cha] = { }
+							Cha2noteIndex[cha]   = 0
+							-- noteoffs for all pednotes except held-down-notes
+							for note = 0,127 do   -- WHAT? all of them ?
+								Cha2pedNotes[cha][note] = 0
+								-- in fluidsynth one note_off silences all :-(
+								if Cha2fingerNotes[cha][note] == 0 
+								  and not Cha2sospedNotes[cha][note] then
+									FS.play_event(
+									  Synth, ALSA.noteoffevent(cha,note,1)
+									)
+								end
+							end
+						end
+					elseif param == 66 then
+						if value >= 64 then
+							for note = 0,127 do   -- all of them ?
+								if Cha2fingerNotes[cha][note] > 0 then
+									Cha2sospedNotes[cha][note] = true
+								else
+									Cha2sospedNotes[cha][note] = false
+								end
+							end
+						else
+							-- note_offs for all sospednotes except down-notes
+							for note = 0,127 do
+								if Cha2sospedNotes[cha][note] then
+									if Cha2fingerNotes[cha][note] == 0 then
+										FS.play_event(
+										  Synth, ALSA.noteoffevent(cha,note,1)
+										)
+									end
+									Cha2sospedNotes[cha][note] = false
+								end
+							end
+						end
+					else
+						FS.play_event(Synth, alsaevent)
+					end
+				elseif is_noteoff(alsaevent) then -- 1.8
+					local cha     = alsaevent[8][1]
+					local note    = alsaevent[8][2]
+					my_note_off(cha, note)
+				elseif alsaevent[1]==ALSA.SND_SEQ_EVENT_NOTEON then -- 1.8
+					local cha     = alsaevent[8][1]
+					local note    = alsaevent[8][2]
+					local howmany = Cha2fingerNotes[cha][note] or 0
+					if Cha2ped[cha] then
+						Cha2pedNotes[cha][note] = Cha2pedNotes[cha][note] + 1
+						remember_note_by_time(cha,note)
+					end
+					Cha2fingerNotes[cha][note] = howmany + 1
+					FS.play_event(Synth, alsaevent)
+				elseif Synth then
+					FS.play_event(Synth, alsaevent)
 				end
 			end
 			-- never gets here :-)
@@ -199,7 +344,7 @@ function quiet_client()
 			local from = ALSA.listconnectedfrom()
 			if #from == 0 then break end
 		end
-		FS.play_event(synth, alsaevent)   --print(DataDumper(alsaevent))
+		FS.play_event(synth, alsaevent)
 	end
 	FS.delete_synth(synth)
 	os.remove(FS.error_file_name())
@@ -227,9 +372,11 @@ B<fluadity> - Synthesiser and midi-to-wav converter using the Fluidsynth library
  fluadity &               # a non-verbose alsa-client, o/p to soundcard
  fluadity -i ProKeys &        # likewise, and connects from the ProKeys
  fluadity -s ./Foo.sf2 -i Pro & # likewise, and loads Foo.sf2 soundfont
+ fluadity -d                    # starts a daemon alsa-client Fluadity
  fluadity /tmp/t.mid /tmp/t.wav # converts midi to wav
  fluadity /tmp/t.mid            # like aplaymidi -p TiMidity /tmp/t.mid
  fluadity - /tmp/t.wav          # like timidity -Ow -o /tmp/t.wav -
+ fluadity -c -d                 # starts a daemon in compatibility_mode
  fluadity -                     # like timidity -     
  perldoc fluadity               # read the manual :-)
 
@@ -277,6 +424,34 @@ containing all the library's I<stderr> output.
 =head1 OPTIONS
 
 =over 3
+
+=item I<-c>
+
+Runs in B<C>ompatibility-Mode,
+including the quirks in the raw I<fluidsynth> behaviour.
+
+For example, in Compatibility-Mode:
+when the limit of maximium-on-notes is reached, the I<newest> note
+gets truncated; but in default mode the I<oldest> note is terminated.
+
+Also, in Compatibility-Mode:
+when several notes are started on the same pitch in the same channel,
+then the first I<note_off> received on that pitch terminates all those notes;
+but in default mode the sound is only terminated when the last I<note_off>
+is received.
+
+This option was introduced in version 1.8;
+previously I<fluadity> always worked in Compatibility-Mode.
+
+=item I<-d>
+
+Starts a daemon running an ALSA-midi client called I<Fluadity>
+(note: upper-case B<F>).
+This can be invoked, for example, in C</etc/rc.local>
+In daemon mode the default configuration file is C</etc/fluidsynth.conf>
+
+Users can then set:
+ export ALSA_OUTPUT_PORTS=Fluadity 
 
 =item I<-f /wherever/my_fluidsynth_config>
 

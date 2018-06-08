@@ -1,16 +1,16 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "fluidsynth"
-version = "1.8-0"
+version = "1.9-0"
 -- LuaDist source
 source = {
-  tag = "1.8-0",
+  tag = "1.9-0",
   url = "git://github.com/LuaDist-testing/fluidsynth.git"
 }
 -- Original source
 -- source = {
---    url = "http://www.pjb.com.au/comp/lua/fluidsynth-1.8.tar.gz",
---    md5 = "8457f679bc90fe1648cbfac2254610ec"
+--    url = "http://www.pjb.com.au/comp/lua/fluidsynth-1.9.tar.gz",
+--    md5 = "ef4cd70c8f25ee0f734c6a02dcbaef0a"
 -- }
 description = {
    summary = "Interface to the fluidsynth library",
@@ -24,6 +24,11 @@ description = {
 -- http://www.luarocks.org/en/Rockspec_format
 dependencies = {
    "lua >=5.1, <5.3",
+}
+external_dependencies = {  -- Duarn 20150216, 20150416
+	FLUIDSYNTH = {
+		library = "fluidsynth";
+	};
 }
 build = {
    type = "builtin",

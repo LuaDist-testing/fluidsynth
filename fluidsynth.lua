@@ -549,7 +549,7 @@ function M.play_event(synth, event) -- no queuing yet; immediate output only
 			M.pitch_bend(synth, event[3], event[4], event[5])
 		end
 	end
-	-- return ?
+	return true   -- so assert doesn't die unnecessarily
 end
 
 ------------------- functions returning state -----------------

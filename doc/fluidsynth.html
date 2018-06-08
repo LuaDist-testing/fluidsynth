@@ -90,8 +90,6 @@ a Lua interface to the <I>fluidsynth</I> library</p>
 This Lua module offers a simplified calling interface
 to the Fluidsynth Library.
 </p><p>
-It is in its early versions, and the API is expected to evolve.
-</p><p>
 It is a relatively thick wrapper.  Various higher-level
 <A HREF="#functions">functions</A>
 are introduced,
@@ -138,7 +136,7 @@ Included are basic functions:<B>
 <dt><B><I><a name="read_config_file">soundfonts =
 FS.read_config_file(filename)</a></I></B></dt>
 <dd><P>
-If <I>filname</I> is <I>nil</I>,
+If <I>filename</I> is <I>nil</I>,
 the default configuration file is <I>$HOME/.fluidsynth</I>
 <BR>and if that does not exist then <I>/etc/fluidsynth.conf</I>
 </p><p>
@@ -149,8 +147,10 @@ is not able to use the <I>set</I> commands); for example:
  fluidsynth -f ~/.fluidsynth
 </PRE><P>
 This module only recognises <I>set</I>, <I>load</I> and <I>select</I> commands;
-see &nbsp; <I>man fluidsynth</I><BR>
-In this example, the <I>select</I> command chooses for channel <B>9</B>,
+see &nbsp; <I>man fluidsynth</I>
+</P><P>
+In the following example, the <I>select</I> command chooses:
+for channel <B>9</B>,
 from soundfont <B>1</B> (<I>Chaos4m.sf2</I>) the bank <B>127</B>
 patch <B>99</B>, which happens to be a percussion set,
 as you typically want on channel 9.<BR>
