@@ -61,7 +61,8 @@ a Lua interface to the <I>fluidsynth</I> library</p>
  assert(<A HREF="#player_play">FS.player_play(player1)</A>)
  assert(<A HREF="player_join">FS.player_join(player1)</A>)   -- wait for foo.mid to finish
  os.execute('sleep 1')             -- don't chop final reverb
- <A HREF="#delete_synth">FS.delete_synth(synth1)</A> -- deletes player,audio_driver,synth,settings</pre>
+ <A HREF="#delete_synth">FS.delete_synth(synth1)</A> -- deletes player,audio_driver,synth,settings
+ <A HREF="#error_file_name">os.remove(FS.error_file_name())</A>   -- remove tmp file</pre>
 <pre>
  local FS   = require 'fluidsynth' -- an alsa-client soundfont-synth
  local ALSA = <A HREF="midialsa.html">require 'midialsa'</A>
@@ -80,7 +81,8 @@ a Lua interface to the <I>fluidsynth</I> library</p>
    if alsaevent[1]==ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then break end
    <A HREF="#play_event">FS.play_event(synth2, alsaevent)</A>
  end
- <A HREF="#delete_synth">FS.delete_synth(synth2)</A></pre>
+ <A HREF="#delete_synth">FS.delete_synth(synth2)</A>
+ <A HREF="#error_file_name">os.remove(FS.error_file_name())</A> -- remove tmp file</pre>
 <p>
 </p>
 <hr />
@@ -128,7 +130,8 @@ Included are basic functions:<B>
 <A HREF="#is_soundfont">is_soundfont</A>,
 <A HREF="#is_midifile">is_midifile</A>,
 <A HREF="#default_settings">default_settings</A>,
-<A HREF="#all_synth_errors">all_synth_errors</A>
+<A HREF="#all_synth_errors">all_synth_errors</A>,
+<A HREF="#error_file_name">error_file_name</A>
 </B></p>
 <dl>
 <dt><B><I><a name="read_config_file">soundfonts =
@@ -225,12 +228,7 @@ so in most cases you can ignore the return value.
 <dd><p>
 This does all the administrivia necessary to delete the <I>synth</I>,
 invoking <I>delete_fluid_player</I>, <I>delete_fluid_audio_driver</I>,
-<I>delete_fluid_synth</I> and <I>delete_fluid_settings</I> as necessary.<BR>
-If there are no remaining <I>synths</I> then
-it also removes the temporary file used to store the C-library's
-<I>stderr</I> output; so if you want to call
-<I><A HREF="#all_synth_errors">all_synth_errors()</A></I>,
-do so before calling <I>delete_synth()</I>
+<I>delete_fluid_synth</I> and <I>delete_fluid_settings</I> as necessary.
 </p><p>
 When called with no argument it deletes all running <I>synths</I>.
 </p></dd>
@@ -370,10 +368,16 @@ FS.all_synth_errors()</a></I></B></dt>
 <dd><P>
 Returns a multi-line string containing all the C-library's
 <I>stderr</I> output.
-<BR>
-If you want to call <I>all_synth_errors()</I>, do so before calling
-<I><A HREF="#delete_synth">delete_synth()</A></I>.
+</p></dd>
 
+<dt><B><I><a name="error_file_name">FS.error_file_name()</a></I></B></dt>
+<dd><P>
+Returns the file-name of the temporary-file used to hold all the C-library's
+<I>stderr</I> output. This file is not removed automatically by
+<A HREF="#delete_synth">delete_synth()</A> because during the lifetime of
+the process many <i>synths</I> may be started and stopped.
+Therefore the application should explicity remove the file just before exit:
+&nbsp; <CODE>os.remove(FS.error_file_name())</CODE>
 </p></dd></dl>
 
 <p></p><hr />
@@ -415,6 +419,7 @@ or on Centos you may need:</p><pre>
 <hr />
 <h2><a name="changes">CHANGES</a></h2>
 <pre>
+ 20140901 1.6 delete_synth doesn't automatically remove TmpFile
  20140830 1.5 new_player knows '-' is stdin, and can play in-memory MIDI-data
  20140828 1.4 eliminate Settings2numSynths and M.delete_settings
  20140827 1.3 use fluid_get_sysconf, fluid_get_userconf, config file 'set k v'

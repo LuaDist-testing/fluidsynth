@@ -7,8 +7,8 @@
 ---------------------------------------------------------------------
 
 local M = {} -- public interface
-M.Version     = '1.5' -- midifilename '-' understood to mean stdin
-M.VersionDate = '30aug2014'
+M.Version     = '1.6' --  delete_synth doesn't automatically remove TmpFile
+M.VersionDate = '01sep2014'
 
 local ALSA = nil -- not needed if you never use play_event
 
@@ -345,7 +345,7 @@ function M.delete_synth(synth)
 			local rc, msg = M.delete_synth(k)
 			if not rc then return rc, msg end
 		end
-		os.remove(TmpName)
+		-- 1.6: os.remove(TmpName) No. See below...
 		return true
 	end
 	-- search though Player2synth deleting any dependent players
@@ -364,7 +364,8 @@ function M.delete_synth(synth)
 	if settings then prv.delete_fluid_settings(settings) end
 	Synth2settings[synth]   = nil
 	Synth2fastRender[synth] = nil
-	if #Synth2settings < 0.5 then os.remove(TmpName) end
+	-- 1.6  if #Synth2settings < 0.5 then os.remove(TmpName) end
+	-- No. eg: in fluadity -d, synths get stopped and started.
 	return true
 end
 
@@ -816,6 +817,8 @@ or on Centos you may need:
 
 =head1 CHANGES
 
+ 20140901 1.6 delete_synth doesn't automatically remove TmpFile
+ 20140830 1.5 new_player midifilename='-' means stdin
  20140828 1.4 eliminate Settings2numSynths and M.delete_settings
  20140827 1.3 use fluid_get_sysconf, fluid_get_userconf, config file 'set k v'
  20140826 1.2 ~/.config/fluidsynth config file using  k = v

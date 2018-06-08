@@ -6,26 +6,30 @@
 --  This script is free software; you can redistribute it and/or   --
 --         modify it under the same terms as Lua5 itself.          --
 ---------------------------------------------------------------------
-local Version = '1.2  for Lua5'
-local VersionDate  = '29aug2014';
+local Version = '1.4'  -- as daemon, only run a synth if there are connections
+local VersionDate  = '01sep2014';
 local Synopsis = [[
- fluadity                      # a simple alsa-client , o/p to soundcard
- fluadity -i ProKeys           # likewise, and connects from the ProKeys
- fluadity /tmp/t.mid /tmp/t.wav  # converts midi to wav
- fluadity /tmp/t.mid             # like aplaymidi -p TiMidity /tmp/t.mid
- fluadity - /tmp/t.wav           # like timidity -Ow -o /tmp/t.wav -
- fluadity -                      # like timidity -     
- perldoc fluadity                # read the manual :-)
+ fluadity &                     # a simple alsa-client , o/p to soundcard
+ fluadity -i ProKeys &          # likewise, and connects from the ProKeys
+ fluadity -s ./Foo.sf2 -i Pro & # likewise, and loads Foo.sf2 soundfont
+ fluadity -d                    # starts a daemon alsa-client Fluadity
+ fluadity /tmp/t.mid /tmp/t.wav # converts midi to wav
+ fluadity /tmp/t.mid            # like aplaymidi -p TiMidity /tmp/t.mid
+ fluadity - /tmp/t.wav          # like timidity -Ow -o /tmp/t.wav -
+ fluadity -                     # like timidity -     
+ perldoc fluadity               # read the manual :-)
 ]]
 
 local FS = require 'fluidsynth'
--- require 'DataDumper'
+require 'DataDumper'
 
 local Curses     = true
 local InputPort  = nil
 local Soundfonts = {}
 local ClientName = 'fluadity'
 local ConfigFile = nil   -- use the default unless there's a -f option
+local Daemon     = false
+
 local iarg=1; while arg[iarg] ~= nil do
 	if not string.find(arg[iarg], '^-[a-z]') then break end
 	local first_letter = string.sub(arg[iarg],2,2)
@@ -35,6 +39,9 @@ local iarg=1; while arg[iarg] ~= nil do
 		os.exit(0)
 	elseif first_letter == 'c' then
 		Curses = true
+	elseif first_letter == 'd' then
+		Daemon = true
+		if not ConfigFile then ConfigFile = FS.get_sysconf() end
 	elseif first_letter == 'f' then
 		iarg = iarg+1
 		ConfigFile = arg[iarg]
@@ -55,21 +62,8 @@ local iarg=1; while arg[iarg] ~= nil do
 	iarg = iarg+1
 end
 
-local InputFile  = arg[iarg]
+local InputFile  = arg[iarg]   -- fluidsynth.lua 1.5 knows '-' means stdin
 local OutputFile = arg[iarg+1]
-
---local TmpFile    = nil   -- fluidsynth.lua 1.5 understands '-' means stdin
---if false and InputFile == '-' then   -- slurp stdin
---    math.randomseed(os.time())
---    local r = string.format('%06d', math.random(999999))
---    TmpFile = '/tmp/fluadity_stdin_'..r..'.mid'
---    local tmp = assert(io.open(TmpFile,'wb'))
---    tmp:write(io.read('*a'))
---    tmp:close()
---    InputFile = TmpFile
---	-- if, AND ONLY IF, the InputFile is a tmpfile, then in needs to be
---	-- removed on exit ...
---end
 
 if #Soundfonts == 0 then
 	Soundfonts = assert(FS.read_config_file(ConfigFile))
@@ -96,7 +90,82 @@ local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
 	return result
 end
 
------------------ the three major function-groups ----------------
+----------------- the four major function-groups ----------------
+
+function midi2wav()
+	local synth = FS.new_synth( {
+		['audio.driver']    = "file",
+		['audio.file.type'] = "wav",
+		['audio.file.name'] = OutputFile,
+		['fast.render']     = true,
+	} )
+	local sf2ids = assert(FS.sf_load(synth, Soundfonts))
+	local player = assert(FS.new_player(synth, InputFile))
+	assert(FS.player_play(player))
+	assert(FS.player_join(player))
+	os.execute('sleep 1')
+	assert(FS.player_stop(player))
+	FS.delete_synth(synth)
+	os.remove(FS.error_file_name())
+end
+
+function play_midi()
+	local synth = FS.new_synth( {} )
+	local sf2ids = assert(FS.sf_load(synth, Soundfonts))
+	local player = assert(FS.new_player(synth, InputFile))
+	assert(FS.player_play(player))
+	assert(FS.player_join(player))
+	os.execute('sleep 1')
+	assert(FS.player_stop(player))
+	FS.delete_synth(synth)
+	os.remove(FS.error_file_name())
+end
+
+function daemon_client()
+	local P    = require 'posix'
+	local ALSA = require 'midialsa'
+	-- daemonize and detach ; see Camel book 1991 p216
+	local child_pid = P.fork()
+	if child_pid == 0 then       -- now this is the child
+		local daemon_pid = P.fork()
+		if daemon_pid == 0 then  -- now this is the child's child
+			while true do        -- wait until we're owned by process 1
+				if P.getpid('ppid') == 1 then break end
+				P.nanosleep(0, 500000)   -- 0.5ms
+			end
+			ALSA.client( 'Fluadity', 1, 0, false )
+			local settings = {
+				['audio.periods']       = 2,   -- min, for low latency
+				['audio.period-size']   = 64,  -- min, for low latency
+				['audio.realtime-prio'] = 90,  -- big, lor low latency
+			}
+			local synth = nil
+			while true do  -- loop until killed
+				local alsaevent = ALSA.input()
+				-- 1.4 running an inactive synth wastes 7% CPU for nothing.
+				if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then
+					local from = ALSA.listconnectedfrom()  -- 1.4
+					if #from == 0 and synth then
+						FS.delete_synth(synth)
+						synth = nil
+					end
+				elseif alsaevent[1]==ALSA.SND_SEQ_EVENT_PORT_SUBSCRIBED then
+					local from = ALSA.listconnectedfrom()  -- 1.4
+					if #from > 0 and not synth then
+						synth = FS.new_synth( settings )
+						assert(FS.sf_load(synth, Soundfonts))
+					end
+				elseif synth then
+					FS.play_event(synth, alsaevent)
+				end
+			end
+			-- never gets here :-)
+		end
+		os.exit(0)  -- the daemon is now detached
+	end
+	P.wait(child_pid)
+	return
+end
 
 function quiet_client()
 	local ALSA = require 'midialsa'
@@ -117,43 +186,16 @@ function quiet_client()
 		FS.play_event(synth, alsaevent)   --print(DataDumper(alsaevent))
 	end
 	FS.delete_synth(synth)
-end
-
-function play_midi()
-	local synth = FS.new_synth( {} )
-	local sf2ids = assert(FS.sf_load(synth, Soundfonts))
-	local player = assert(FS.new_player(synth, InputFile))
-	assert(FS.player_play(player))
-	assert(FS.player_join(player))
-	os.execute('sleep 1')
-	assert(FS.player_stop(player))
-	FS.delete_synth(synth)
-end
-
-function midi2wav()
-	local synth = FS.new_synth( {
-		['audio.driver']    = "file",
-		['audio.file.type'] = "wav",
-		['audio.file.name'] = OutputFile,
-		['fast.render']     = true,
-	} )
-	local sf2ids = assert(FS.sf_load(synth, Soundfonts))
-	local player = assert(FS.new_player(synth, InputFile))
-	assert(FS.player_play(player))
-	assert(FS.player_join(player))
-	os.execute('sleep 1')
-	assert(FS.player_stop(player))
-	FS.delete_synth(synth)
+	os.remove(FS.error_file_name())
 end
 
 ----------------------------------------------------------------
 
 if InputFile and OutputFile then midi2wav() -- midi to wav
 elseif InputFile then play_midi()           -- play midi
-else               quiet_client()           -- alsa-client
+elseif Daemon    then daemon_client()
+else                  quiet_client()        -- alsa-client
 end
-os.remove(FS.error_file_name())
--- if TmpFile then os.remove(TmpFile) end
 os.exit(0)
 
 --[=[
