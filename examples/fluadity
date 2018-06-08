@@ -104,7 +104,8 @@ function quiet_client()
 		['audio.period-size']   = 64,  -- min, for low latency
 		['audio.realtime-prio'] = 85,  -- big, lor low latency
 	} )
-	sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
+	local sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
+	if sf_id_s == nil then print(msg) end
 	while true do
 		local alsaevent = ALSA.input()
 		if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then
@@ -121,12 +122,9 @@ function curses_client()   -- see /home/pbin/midithru
 end
 
 function play_midi()
-	local synth = FS.new_synth( {
-	} )
-	for i,val in ipairs(Soundfonts) do
-		local sf_id,msg = FS.sf_load(synth, val, 0)
-		if sf_id == nil then print(msg) end
-	end
+	local synth = FS.new_synth( {} )
+	local sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
+	if sf_id_s == nil then print(msg) end
 	local player = assert(FS.new_player(synth, InputFile))
 	assert(FS.player_play(player))
 	assert(FS.player_join(player))
@@ -142,11 +140,8 @@ function midi2wav()
 		['audio.file.name'] = OutputFile,
 		['fast.render']     = true,
 	} )
-	for i,val in ipairs(Soundfonts) do
-		local sf_id,msg = FS.sf_load(synth, val, 0)
-		-- print('sf_id =', sf_id)
-		if sf_id == nil then print(msg) end
-	end
+	local sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
+	if sf_id_s == nil then print(msg) end
 	local player = assert(FS.new_player(synth, InputFile))
 	assert(FS.player_play(player))
 	assert(FS.player_join(player))
@@ -221,6 +216,12 @@ It uses the I<midialsa> and I<fluidity> Lua modules,
 which in turn need the I<alsa> and I<fluidsynth> C-libraries
 and associated header-files.
 Because it uses the I<midialsa> library, it feels most at home on I<Linux>
+
+I<fluadity> terminates when all its inputs disconnect.
+
+Of course it also terminates if killed or interrupted (eg: with ctrl-C twice),
+but in this case it leaves a temporary file undeleted in I</tmp>
+containing all the library's I<stderr> output.
 
 =head1 OPTIONS
 

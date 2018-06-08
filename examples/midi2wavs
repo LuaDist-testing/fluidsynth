@@ -11,11 +11,6 @@ local MIDI = require 'MIDI'
 local P    = require 'posix'
 local FS   = nil
 pcall(function() FS = require 'fluidsynth' end)
-local Soundfonts = {
-	'/home/soundfonts/Ultimate.sf2',
-	'/home/soundfonts/Bank5.sf2',
-	'/home/soundfonts/SteinwayGrandPiano1.2.sf2',
-}
 -- require 'DataDumper'
 
 local Version = '1.1  for Lua5'
@@ -91,13 +86,7 @@ for i,channel in ipairs(stats['channels_total']) do
 	local cha_midiname = basename .. '_cha' .. tostring(channel) .. '.mid'
 	table.insert(cha_midinames, cha_midiname)
 end
--- could test here for pre-existing files
-local settings = nil
-if FS then
-	settings = FS.new_settings()
-	FS.set(settings, "audio.driver", "file")
-	FS.set(settings, "audio.file.type", "wav")
-end
+-- could test here for pre-existing files before overwriting...
 for i,channel in ipairs(channels) do
 	local cha_score = MIDI.grep(score, {channel,})
 	-- http://lua-users.org/lists/lua-l/2007-10/msg00189.html
@@ -106,6 +95,11 @@ for i,channel in ipairs(channels) do
 	if FS and not Noop then
 		midifile:write(MIDI.score2midi(cha_score))
 		midifile:close()
+		local soundfonts = FS.read_config_file()
+		if #soundfonts == 0 then
+			print('fluidsynth finds no soundfonts to load')
+			os.exit(1)
+		end
 		print('  generating '..cha_filenames[i]..' ...')
 		local synth = FS.new_synth( {
 			['audio.driver']    = 'file',
@@ -113,7 +107,7 @@ for i,channel in ipairs(channels) do
 			['audio.file.name'] = cha_filenames[i],
 			['fast.render']     = true,
 		} )
-		local sf_id,msg = FS.sf_load(synth, Soundfonts)
+		local sf_ids,msg = assert(FS.sf_load(synth, soundfonts))
 		local player = assert(FS.new_player(synth, cha_midinames[i]))
 		assert(FS.player_play(player))
 		assert(FS.player_join(player))
@@ -150,7 +144,6 @@ for i,channel in ipairs(channels) do
 		os.execute(command)
 	end
 end
-if FS then FS.delete_settings(settings) end
 
 if Quiet then os.exit() end
 

@@ -32,6 +32,10 @@ local iarg=1; while arg[iarg] ~= nil do
 end
 
 local FS = require 'fluidsynth'
+local userconf = FS.get_userconf()
+print ('get_userconf returns', userconf)
+local sysconf = FS.get_sysconf()
+print ('get_sysconf returns', sysconf)
 local parameter2default = FS.default_settings()
 print("parameter2default['synth.midi-bank-select'] =",parameter2default['synth.midi-bank-select'])
 local settings,msg = FS.new_settings()

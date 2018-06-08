@@ -7,7 +7,7 @@
 ---------------------------------------------------------------------
 
 local M = {} -- public interface
-M.Version     = '1.2' -- new calling interface at a much higher level
+M.Version     = '1.3' -- use fluid_get_sysconf, fluid_get_userconf, set k v
 M.VersionDate = '26aug2014'
 
 local ALSA = nil -- not needed if you never use play_event
@@ -69,24 +69,12 @@ local function touch(fn)
 		end
 	end
 end
-local function homedir(user)
-	if not user and os.getenv('HOME') then return os.getenv('HOME') end
-	local P = nil
-    pcall(function() P = require 'posix' ; end )
-    if type(P) == 'table' then  -- we have posix
-		if not user then user = P.getpid('euid') end
-		return P.getpasswd(user, 'dir') or '/tmp'
-	end
-	warn('fluidsynth: HOME not set and luaposix not installed; using /tmp')
-	return '/tmp/'
-end
-local function tilde_expand(filename)
-    if string.match(filename, '^~') then
-        local user = string.match(filename, '^~(%a+)/')
-        local home = homedir(user)
-        filename = string.gsub(filename, '^~%a*', home)
-    end
-    return filename
+
+function is_readable(filename)
+	local f,msg = io.open(filename, 'r')
+	if not f then return false, msg end
+	io.close(f) 
+	return true
 end
 
 ---------------- from Lua Programming Gems p. 331 ----------------
@@ -501,7 +489,14 @@ function M.play_event(synth, event) -- no queuing yet; immediate output only
 end
 
 function M.read_config_file(filename)
-	if not filename then filename=os.getenv('HOME')..'/.config/fluidsynth' end
+	if not filename then
+		userconf = prv.fluid_get_userconf()
+		sysconf  = prv.fluid_get_sysconf()
+		if    is_readable(userconf) then filename = userconf
+		elseif is_readable(sysconf) then filename = sysconf
+		else return nil, "can't find either "..userconf.." or "..sysconf
+		end
+	end
 	local soundfonts = {}
 	local config_file,msg = io.open(filename, 'r')
 	if not config_file then return nil,msg end   -- no config file
@@ -509,7 +504,7 @@ function M.read_config_file(filename)
 	while true do
 		local line = config_file:read('*l')
 		if not line then break end
-		local param,val = string.match(line, '^%s*(%S+)%s*=%s*(%S+)%s*$')
+		local param,val = string.match(line, '^%s*set%s*(%S+)%s*(%S+)%s*$')
 		if param and val then
 			local default_val = DefaultOption[param]
 			if default_val then
@@ -530,6 +525,13 @@ function M.read_config_file(filename)
 	end
 	config_file:close()
 	return soundfonts
+end
+
+function M.get_sysconf()
+	return prv.fluid_get_sysconf()
+end
+function M.get_userconf()
+	return prv.fluid_get_userconf()
 end
 
 return M
@@ -846,7 +848,8 @@ or on Centos you may need:
 
 =head1 CHANGES
 
- 20140826 1.2 
+ 20140827 1.3 use fluid_get_sysconf, fluid_get_userconf,  set k v
+ 20140826 1.2 ~/.config/fluidsynth config file using  k = v
  20140825 1.1 new calling-interface at much higher level
  20140818 1.0 first working version 
 

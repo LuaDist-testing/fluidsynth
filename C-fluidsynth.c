@@ -327,6 +327,20 @@ static int c_fluid_is_midifile(lua_State *L) { /* filename */
 	return 1;
 }
 
+static int c_fluid_get_sysconf(lua_State *L) { /* fluidsynth/shell.h */
+	const int length = 1024;
+	char* buffer = malloc(length);
+	lua_pushstring(L, fluid_get_sysconf(buffer, length));
+	return 1;
+}
+
+static int c_fluid_get_userconf(lua_State *L) { /* fluidsynth/shell.h */
+	const int length = 1024;
+	char* buffer = malloc(length);
+	lua_pushstring(L, fluid_get_userconf(buffer, length));
+	return 1;
+}
+
 /* ----------------- evolved from C-midialsa.c ---------------- */
 struct constant {  /* Gems p. 334 */
     const char * name;
@@ -367,6 +381,8 @@ static const luaL_Reg prv[] = {  /* private functions */
     {"fluid_is_midifile",          c_fluid_is_midifile},
     {"redirect_stderr",            c_redirect_stderr},
     {"restore_stderr",             c_restore_stderr},
+    {"fluid_get_sysconf",          c_fluid_get_sysconf},
+    {"fluid_get_userconf",         c_fluid_get_userconf},
 	/* {"fluid_synth_pitch_bend_sens",c_fluid_synth_pitch_bend_sens}, */
     {NULL, NULL}
 };
