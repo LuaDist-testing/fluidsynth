@@ -7,8 +7,8 @@
 ---------------------------------------------------------------------
 
 local M = {} -- public interface
-M.Version     = '1.4' -- eliminate Settings2numSynths and M.delete_settings
-M.VersionDate = '28aug2014'
+M.Version     = '1.5' -- midifilename '-' understood to mean stdin
+M.VersionDate = '30aug2014'
 
 local ALSA = nil -- not needed if you never use play_event
 
@@ -370,14 +370,22 @@ end
 
 --------------- functions for playing midi files ----------------
 
-function M.new_player(synth, midifilename)
-	if not midifilename then return nil,'new_player: midifilename was nil' end
-	if not M.is_midifile(midifilename) then
-		return nil,'new_player: '..midifilename..' was not a midi file'
-	end
+function M.new_player(synth, midifile)
+	if not midifile then return nil,'new_player: midifile was nil' end
 	local player = prv.new_fluid_player(synth)
 	if player == FLUID_FAILED then return nil, M.synth_error(synth) end
-	local rc = prv.fluid_player_add(player, midifilename)
+	local rc
+	if M.is_midifile(midifile) then   -- 1.5
+		rc = prv.fluid_player_add(player, midifile)
+	elseif midifile == '-' then
+		rc = M.player_add_mem(player, io.stdin:read('*a'))
+	elseif string.match(midifile, '^MThd') then
+		rc = M.player_add_mem(player, midifile)
+	else
+		delete_player(player)
+		midifile = string.gsub(string.sub(midifile,1,40), '%G+', '.')
+		return nil, 'new_player: '..midifile..' was not a midi file'
+	end
 	if rc == FLUID_FAILED then
 		delete_player(player)
 		return nil, M.synth_error(synth)
@@ -400,7 +408,7 @@ end
 
 function M.player_play(player)
 	local rc = prv.fluid_player_play(player)
-	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
+	if rc == FLUID_FAILED then return nil, M.synth_error(Player2synth[player])
 	else return true end
 end
 
@@ -422,11 +430,18 @@ end
 
 function M.player_stop(player)
 	local rc = prv.fluid_player_stop(player)
-	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
+	if rc == FLUID_FAILED then return nil, M.synth_error(Player2synth[player])
 	else
-		-- player_play can not be reinvoked ! so I call delete_player
+		-- player_play can not be reinvoked ! so just delete_player
 		delete_player(player)
 		return true
+	end
+end
+
+function M.player_add_mem(player, buffer)
+	local rc = prv.fluid_player_add_mem(player, buffer, string.len(buffer)+1)
+	if rc == FLUID_FAILED then return nil, M.synth_error(Player2synth[player])
+	else return true
 	end
 end
 

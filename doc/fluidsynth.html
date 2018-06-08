@@ -138,7 +138,7 @@ If <I>filname</I> is <I>nil</I>,
 the default configuration file is <I>$HOME/.fluidsynth</I>
 <BR>and if that does not exist then <I>/etc/fluidsynth.conf</I>
 </p><p>
-This file also be used as a configuration file for the
+This file can also be used as a configuration file for the
 <I>fluidsynth</I> executable (except that <I>fluidsynth</I>
 is not able to use the <I>set</I> commands); for example:
 </P><PRE>
@@ -156,8 +156,8 @@ Invoking the function
 <I>soundfonts = FS.read_config_file()</I>
 (before creating the first <I>synth</I>!)
 then changes the default settings for <I>audio.driver</I> and
-<I>synth.polyphony</I>, and returns an array of Soundfonts
-ready for later use by <A HREF="#sf_load">sf_load(synth,soundfonts)</A>
+<I>synth.polyphony</I>, and returns an array of SoundFonts ready for
+later use by <I><A HREF="#sf_load">sf_load(synth,soundfonts)</A></I>
 </P></dd>
 
 <dt><B><I><a name="new_synth">synth =
@@ -176,23 +176,27 @@ invoking
 <I>new_fluid_audio_driver()</I> automatically as needed.
 </p><p>
 The return value is a C pointer to the <I>synth</I>,
-so don't change that otherwise the library will crash.
+so don't change that or the library will crash.
 </p><p>
 Multiple synths may be started.
 </p><p>
 The meanings and permitted values of the various parameters are documented in
-<a href="http://fluidsynth.sourceforge.net/api/">http://fluidsynth.sourceforge.net/api/</a>
-with just two additions:</p>
-<p><B>1)</B> If the <I>audio.driver</I> parameter is set to &quot;none&quot;
-then FS.new_synth() will not automatically create an <I>audio_driver</I>.
-You will not need this until support for <I>midi_router</I> is introduced.</p>
-<p><B>2)</B> The <I>fast.render</I> parameter is introduced.
+<a href="http://fluidsynth.sourceforge.net/api/">
+fluidsynth.sourceforge.net/api/</a> with just two additions:</p><UL><LI>
+The <I>fast.render</I> parameter is introduced.
 You should set it to <I>true</I> if and only if
-you are converting MIDI to WAV and no real-time events are involved.
-If <I>fast.render</I> is <I>true</I> the conversion will be done at full CPU speed
-and will finish an order of magnitude quicker than real time.
+you are converting MIDI to WAV and no real-time events will be involved.
+If <I>fast.render</I> is <I>true</I> the conversion will be done at full
+CPU speed and will finish an order of magnitude quicker than real time.
 Look for <I>fast_render</I> in <I>src/fluidsynth.c</I> for example code.
-</P></dd>
+</LI><LI>
+If the <I>audio.driver</I> parameter is set to &quot;none&quot; then
+<I>new_synth()</I> will not automatically create an <I>audio_driver</I>.
+You will not need this setting until support
+for <I>midi_router</I> is introduced.
+</LI></UL>
+<P></P>
+</dd>
 
 <dt><B><I><a name="sf_load">filename2sf_id =
 FS.sf_load(synth, {'my_gm.sf2', 'my_piano.sf2',})</a></I></B></dt>
@@ -205,6 +209,9 @@ they go onto a sort of stack, and for a given patch,
 stack which can supply the requested patch.
 In the above example, <I>my_gm.sf2</I> is a good general-midi soundfont,
 except that <I>my_piano.sf2</I> offers a much nicer piano sound.
+</p><p>
+In practice, the array of soundfonts will usually be the output of a
+previous <I><A HREF="#read_config_file">read_config_file()</A></I> command.
 </p><p>
 It returns an table where the keys are filenames of the soundfonts,
 and the values are the <I>soundfont_ids</I> that represent them.
@@ -229,13 +236,26 @@ When called with no argument it deletes all running <I>synths</I>.
 </p></dd>
 
 <dt><B><I><a name="new_player">player =
-FS.new_player(synth, '/tmp/filename.mid')</a></I></B></dt>
+FS.new_player(synth, midifile)</a></I></B></dt>
 <dd><p>
-This wraps the library routines <I>new_fluid_player()</I>
-and <I>fluid_player_add()</I>,
-thus allowing you to play a midi file.
+This wraps the library routines <I>new_fluid_player()</I>,
+and then <I>fluid_player_add()</I>
+or <I>fluid_player_add_mem()</I>,
+allowing you to play a MIDI file.
 The return value is a C pointer.
-</p><p>
+</p><UL><LI>
+If <I>midifile</I> is the filename of a MIDI file,
+then <I>fluid_player_add()</I> is is used to play it.
+</LI><LI>
+If <I>midifile</I> is '<B>-</B>'
+it is understood to mean <I>stdin</I>, the standard input.
+</LI><LI>
+If <I>midifile</I> is a byte-string beginning with '<I>MThd</I>'
+&nbsp; (eg: the output of
+<I><A HREF="MIDI.html#opus2midi">MIDI.opus2midi</A></I> or
+<I><A HREF="MIDI.html#score2midi">MIDI.score2midi</A></I>) &nbsp;
+then <I>fluid_player_add_mem()</I> is used to play it.
+</LI></UL><p>
 One <I>synth</I> may have multiple <I>midi_players</I> running at the same
 time (eg: to play several midi files, each starting at a different moment).
 Therefore, you still need to call <I>player_play(player)</I>,
@@ -249,8 +269,8 @@ This corresponds to the library routine <I>fluid_player_play()</I>
 
 <dt><B><I><a name="player_join">FS.player_join(midiplayer)</a></I></B></dt>
 <dd><p>
-This corresponds to the library routine <I>fluid_player_join()</I>;<BR>
-it waits until the <I>midiplayer</I> has got to the end of the last note
+This corresponds to the library routine <I>fluid_player_join()</I><BR>
+It waits until the <I>midiplayer</I> has got to the end of the last note
 in its midi file.
 </p></dd>
 
@@ -302,10 +322,16 @@ and 0 represents the central position.)
 This is a wrapper for the above <I>note_on</I>, <I>note_off</I>,
 <I>patch_change</I>, <I>control_change</I> and <I>pitch_bend routines</I>,
 which accepts events of two different types used in the author's other
-midi-related modules:</p>
-<p>1) MIDI 'opus' events, see: <a href="http://www.pjb.com.au/comp/lua/MIDI.html#events">http://www.pjb.com.au/comp/lua/MIDI.html#events</a></p>
-<p>2) midialsa events, see: <a href="http://www.pjb.com.au/comp/lua/midialsa.html">http://www.pjb.com.au/comp/lua/midialsa.html</a>
-</p><p>It will currently only handle real-time events,
+midi-related modules:</p><UL><LI>
+MIDI 'opus' events, see:
+<a href="http://www.pjb.com.au/comp/lua/MIDI.html#events">
+www.pjb.com.au/comp/lua/MIDI.html#events</a>
+</LI><LI>
+midialsa events, &nbsp; see:
+<a href="http://www.pjb.com.au/comp/lua/midialsa.html#input">
+www.pjb.com.au/comp/lua/midialsa.html#input</a>
+</LI></UL><p>
+It will currently only handle real-time events,
 so every event received will be played immediately.
 It will currently not handle 'note' events (of either type).
 </p></dd>
@@ -341,9 +367,12 @@ The meanings and permitted values of the various parameters are documented in
 
 <dt><B><I><a name="all_synth_errors"> err_string =
 FS.all_synth_errors()</a></I></B></dt>
-<dd><p>
+<dd><P>
 Returns a multi-line string containing all the C-library's
 <I>stderr</I> output.
+<BR>
+If you want to call <I>all_synth_errors()</I>, do so before calling
+<I><A HREF="#delete_synth">delete_synth()</A></I>.
 
 </p></dd></dl>
 
@@ -373,7 +402,7 @@ so you should be able to install it with the command:</p>
  # luarocks install --server=http://rocks.moonscript.org fluidsynth</pre>
 <p>or:</p>
 <pre>
- # luarocks install http://www.pjb.com.au/comp/lua/fluidsynth-1.4-0.rockspec</pre>
+ # luarocks install http://www.pjb.com.au/comp/lua/fluidsynth-1.5-0.rockspec</pre>
 <p>It depends on the <I>fluidsynth</I> library and its header-files;
 for example on Debian you may need:
 </p><pre>
@@ -386,6 +415,7 @@ or on Centos you may need:</p><pre>
 <hr />
 <h2><a name="changes">CHANGES</a></h2>
 <pre>
+ 20140830 1.5 new_player knows '-' is stdin, and can play in-memory MIDI-data
  20140828 1.4 eliminate Settings2numSynths and M.delete_settings
  20140827 1.3 use fluid_get_sysconf, fluid_get_userconf, config file 'set k v'
  20140826 1.2 sf_load takes 2nd arg as an array; ~/.config/fluidsynth k = v
@@ -396,7 +426,8 @@ or on Centos you may need:</p><pre>
 <hr />
 <h2><a name="author">AUTHOR</a></h2>
 <p>Peter Billam, 
-<a href="http://www.pjb.com.au/comp/contact.html">http://www.pjb.com.au/comp/contact.html</a></p>
+<a href="http://www.pjb.com.au/comp/contact.html">
+http://www.pjb.com.au/comp/contact.html</a></p>
 <p>
 </p>
 <hr />
@@ -411,7 +442,8 @@ or on Centos you may need:</p><pre>
  <a href="http://www.pjb.com.au/comp/lua/fluidsynth.html">http://www.pjb.com.au/comp/lua/fluidsynth.html</a>
  <a href="http://www.pjb.com.au/comp/lua/midialsa.html">http://www.pjb.com.au/comp/lua/midialsa.html</a>
  <a href="http://www.pjb.com.au/comp/lua/MIDI.html">http://www.pjb.com.au/comp/lua/MIDI.html</a>
- <a href="http://www.pjb.com.au/midi/fluadity.html">http://www.pjb.com.au/midi/fluadity.html</a></pre>
+ <a href="http://www.pjb.com.au/midi/fluadity.html">http://www.pjb.com.au/midi/fluadity.html</a>
+ <a href="http://www.pjb.com.au/midi/midi2wavs.html">http://www.pjb.com.au/midi/midi2wavs.html</a></pre>
 
 </body>
 

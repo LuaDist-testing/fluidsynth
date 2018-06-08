@@ -54,6 +54,25 @@ print("about to call sf_load on non-existent file")
 sf_ids,msg = FS.sf_load(synth, "/wherever/Zsfuospw9erk.sf2", 0)
 print('sf_ids =',DataDumper(sf_ids))
 
+print("about to call new_player on non-existent MIDI data")
+rc,msg = FS.new_player(synth,
+  'qwert yuiop asdfg hjkl; zxcvb nm, qwert yuiop asdfg hjkl; zxcvb nm,')
+if not rc then print(msg) end
+
+local filename = '/home/pjb/www/muscript/samples/courante.mid'
+fh = assert(io.open(filename, "rb"))
+local midi = fh:read('*all')
+fh:close()
+print('courante.mid length is', string.len(midi))
+if string.match(midi, '^MThd') then
+	print('it begins with MThd')
+end
+print('about to call new_player on in-memory MIDI data')
+local player = assert(FS.new_player(synth, midi))
+FS.player_play(player)
+FS.player_join(player)
+
+
 local channel = 0
 print("about to call patch_change")
 rc,msg = FS.patch_change(synth, channel, 87)

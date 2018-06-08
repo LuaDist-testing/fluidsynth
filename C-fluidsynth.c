@@ -329,15 +329,27 @@ static int c_fluid_is_midifile(lua_State *L) { /* filename */
 
 static int c_fluid_get_sysconf(lua_State *L) { /* fluidsynth/shell.h */
 	const int length = 1024;
-	char* buffer = malloc(length);
+	char *buffer = malloc(length);
+/* warning: incompatible implicit declaration of built-in function ‘malloc’ */
 	lua_pushstring(L, fluid_get_sysconf(buffer, length));
 	return 1;
 }
 
 static int c_fluid_get_userconf(lua_State *L) { /* fluidsynth/shell.h */
 	const int length = 1024;
-	char* buffer = malloc(length);
+	char *buffer = malloc(length);
+/* warning: incompatible implicit declaration of built-in function ‘malloc’ */
 	lua_pushstring(L, fluid_get_userconf(buffer, length));
+	return 1;
+}
+
+static int c_fluid_player_add_mem(lua_State *L) { /* fluidsynth/midi.h */
+	/* (fluid_player_t* player, const void *buffer, size_t len) */
+	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
+	const char *buffer = lua_tostring(L, 2);
+/* http://stackoverflow.com/questions/5547131/c-question-const-void-vs-void */
+	size_t length = (size_t)lua_tointeger(L, 3);
+	lua_pushinteger(L, fluid_player_add_mem(player, buffer, length));
 	return 1;
 }
 
@@ -383,6 +395,7 @@ static const luaL_Reg prv[] = {  /* private functions */
     {"restore_stderr",             c_restore_stderr},
     {"fluid_get_sysconf",          c_fluid_get_sysconf},
     {"fluid_get_userconf",         c_fluid_get_userconf},
+    {"fluid_player_add_mem",       c_fluid_player_add_mem},
 	/* {"fluid_synth_pitch_bend_sens",c_fluid_synth_pitch_bend_sens}, */
     {NULL, NULL}
 };

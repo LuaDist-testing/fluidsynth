@@ -19,7 +19,7 @@ local Synopsis = [[
 ]]
 
 local FS = require 'fluidsynth'
-require 'DataDumper'
+-- require 'DataDumper'
 
 local Curses     = true
 local InputPort  = nil
@@ -57,23 +57,24 @@ end
 
 local InputFile  = arg[iarg]
 local OutputFile = arg[iarg+1]
-local TmpFile    = nil
-if InputFile == '-' then   -- slurp stdin
-    math.randomseed(os.time())
-    local r = string.format('%06d', math.random(999999))
-    TmpFile = '/tmp/fluadity_stdin_'..r..'.mid'
-    local tmp = assert(io.open(TmpFile,'wb'))
-    tmp:write(io.read('*a'))
-    tmp:close()
-    InputFile = TmpFile
-	-- if, AND ONLY IF, the InputFile is a tmpfile, then in needs to be
-	-- removed on exit ...
-end
+
+--local TmpFile    = nil   -- fluidsynth.lua 1.5 understands '-' means stdin
+--if false and InputFile == '-' then   -- slurp stdin
+--    math.randomseed(os.time())
+--    local r = string.format('%06d', math.random(999999))
+--    TmpFile = '/tmp/fluadity_stdin_'..r..'.mid'
+--    local tmp = assert(io.open(TmpFile,'wb'))
+--    tmp:write(io.read('*a'))
+--    tmp:close()
+--    InputFile = TmpFile
+--	-- if, AND ONLY IF, the InputFile is a tmpfile, then in needs to be
+--	-- removed on exit ...
+--end
 
 if #Soundfonts == 0 then
 	Soundfonts = assert(FS.read_config_file(ConfigFile))
 end
-print(DataDumper(Soundfonts))
+-- print(DataDumper(Soundfonts))
 
 --------------- infrastructure from pjblib.lua --------------
 local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
@@ -95,7 +96,7 @@ local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
 	return result
 end
 
------------------ the various major function-groups --------------
+----------------- the three major function-groups ----------------
 
 function quiet_client()
 	local ALSA = require 'midialsa'
@@ -106,8 +107,7 @@ function quiet_client()
 		['audio.period-size']   = 64,  -- min, for low latency
 		['audio.realtime-prio'] = 85,  -- big, lor low latency
 	} )
-	local sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
-	if sf_id_s == nil then print(msg) end
+	local sf2ids = assert(FS.sf_load(synth, Soundfonts))
 	while true do
 		local alsaevent = ALSA.input()
 		if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then
@@ -121,8 +121,7 @@ end
 
 function play_midi()
 	local synth = FS.new_synth( {} )
-	local sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
-	if sf_id_s == nil then print(msg) end
+	local sf2ids = assert(FS.sf_load(synth, Soundfonts))
 	local player = assert(FS.new_player(synth, InputFile))
 	assert(FS.player_play(player))
 	assert(FS.player_join(player))
@@ -138,8 +137,7 @@ function midi2wav()
 		['audio.file.name'] = OutputFile,
 		['fast.render']     = true,
 	} )
-	local sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
-	if sf_id_s == nil then print(msg) end
+	local sf2ids = assert(FS.sf_load(synth, Soundfonts))
 	local player = assert(FS.new_player(synth, InputFile))
 	assert(FS.player_play(player))
 	assert(FS.player_join(player))
@@ -148,14 +146,14 @@ function midi2wav()
 	FS.delete_synth(synth)
 end
 
-------------------------------------------------------------------
+----------------------------------------------------------------
 
 if InputFile and OutputFile then midi2wav() -- midi to wav
 elseif InputFile then play_midi()           -- play midi
-else               quiet_client()
+else               quiet_client()           -- alsa-client
 end
 os.remove(FS.error_file_name())
-if TmpFile then os.remove(TmpFile) end
+-- if TmpFile then os.remove(TmpFile) end
 os.exit(0)
 
 --[=[
