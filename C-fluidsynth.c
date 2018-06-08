@@ -39,6 +39,11 @@
     not: dup2(fileno(stderr), fileno(tmpfile()));  :-(
 */
 int save_stderr = -1;
+fluid_synth_t* synths[128] = { 0 };   /* 2.0 to keep ptrs inside the C code */
+fluid_settings_t* settingses[128] = { 0 };     /* 2.0 to keep ptrs inside C */
+fluid_player_t* players[128] = { 0 }; /* 2.0 to keep ptrs inside the C code */
+fluid_audio_driver_t* audio_drivers[128] = { 0 };  /* 2.0 to keep ptrs in C */
+
 static int c_redirect_stderr(lua_State *L) {
 	save_stderr = dup(fileno(stderr));
 	char* tmp_file = tmpnam(NULL);
@@ -57,23 +62,25 @@ static int c_restore_stderr() {
 	return 0;
 }
 
-static int c_new_fluid_settings(lua_State *L) {
+static int c_new_fluid_settings(lua_State *L) {  /* synthnum */
+	int               synthnum = (int)(int)luaL_checkinteger(L, 1);
 	fluid_settings_t* settings = new_fluid_settings();  /* api */
 	/* redirect_stderr is called from lua so fluidsynth knows tmp_file */
-	lua_pushinteger(L, (lua_Integer)settings); 
+	settingses[synthnum] = settings;
+	lua_pushinteger(L, synthnum); 
 	return 1;
 }
 
-static int c_delete_fluid_settings(lua_State *L) {  /* settings */
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+static int c_delete_fluid_settings(lua_State *L) {  /* settingsnum */
+	fluid_settings_t* settings = settingses[(int)luaL_checkinteger(L, 1)];
 	delete_fluid_settings(settings);   /* void; returns nothing */
 	if (save_stderr != -1) { c_restore_stderr(); }
    	lua_pushinteger(L, 0);   /* FLUID_OK */
 	return 1;
 }
 
-static int c_fluid_settings_setint(lua_State *L) {  /* settings,key,val */
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+static int c_fluid_settings_setint(lua_State *L) {  /* settingsnum,key,val */
+	fluid_settings_t* settings = settingses[(int)luaL_checkinteger(L, 1)];
 	const char *key = lua_tostring(L, 2);
 	lua_Integer val = lua_tointeger(L, 3);
     int rc = fluid_settings_setint(settings, key, val);
@@ -82,7 +89,7 @@ static int c_fluid_settings_setint(lua_State *L) {  /* settings,key,val */
 }
 
 static int c_fluid_settings_setnum(lua_State *L) {  /* settings,key,val */
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	fluid_settings_t* settings = settingses[(int)luaL_checkinteger(L, 1)];
 	const char *key = lua_tostring(L, 2);
 	lua_Number  val = lua_tonumber(L, 3);
     int rc = fluid_settings_setnum(settings, key, val);
@@ -91,7 +98,7 @@ static int c_fluid_settings_setnum(lua_State *L) {  /* settings,key,val */
 }
 
 static int c_fluid_settings_setstr(lua_State *L) {  /* settings,key,val */
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	fluid_settings_t* settings = settingses[(int)luaL_checkinteger(L, 1)];
 	const char *key = lua_tostring(L, 2);
 	const char *val = lua_tostring(L, 3);
     int rc = fluid_settings_setstr(settings, key, val);
@@ -100,45 +107,61 @@ static int c_fluid_settings_setstr(lua_State *L) {  /* settings,key,val */
 }
 
 /* http://fluidsynth.sourceforge.net/api/synth_8h.html */
-static int c_new_fluid_synth(lua_State *L) {  /* settings */
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+static int c_new_fluid_synth(lua_State *L) {  /* synthnum */
+	int               synthnum = (int)luaL_checkinteger(L, 1);
+	fluid_settings_t* settings = settingses[synthnum];
 	fluid_synth_t*    synth    = new_fluid_synth(settings);
-    lua_pushinteger(L, (lua_Integer)synth); 
+	if ((int)synth == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	synths[synthnum] = synth;
+    lua_pushinteger(L, synthnum); 
     return 1;
 }
 
-static int c_delete_fluid_synth(lua_State *L) {  /* synth */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+static int c_delete_fluid_synth(lua_State *L) {  /* synthnum */
+	/* fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1); */
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	int rc = delete_fluid_synth(synth);
    	lua_pushinteger(L, rc);
 	return 1;
 }
 
-static int c_new_fluid_audio_driver(lua_State *L) {  /* settings, synth */
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
-	fluid_synth_t*    synth    = (fluid_synth_t*)lua_tointeger(L, 2);
+static int c_new_fluid_audio_driver(lua_State *L) {  /* synthnum */
+	int               synthnum = (int)luaL_checkinteger(L, 1);
+	fluid_synth_t*    synth    = synths[synthnum];
+	fluid_settings_t* settings = settingses[synthnum];
 	fluid_audio_driver_t* audio_driver=new_fluid_audio_driver(settings,synth);
-    lua_pushinteger(L, (lua_Integer)audio_driver); /* pointer->integer */
+	if ((int)audio_driver == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	audio_drivers[synthnum] = audio_driver;
+    lua_pushinteger(L, synthnum);
 	return 1;
 }
 
 static int c_delete_fluid_audio_driver(lua_State *L) {  /* audio_driver */
-	fluid_audio_driver_t* audio_driver 
-	  = (fluid_audio_driver_t*)lua_tointeger(L, 1);
-	delete_fluid_audio_driver(audio_driver);   /* returns nothing */
+	int               synthnum = (int)luaL_checkinteger(L, 1);
+	fluid_audio_driver_t* audio_driver = audio_drivers[synthnum];
+	if (audio_driver) {  /* 2.0 absent AudioDriver2synth, must defend */
+		delete_fluid_audio_driver(audio_driver);   /* returns nothing */
+		audio_drivers[synthnum] = 0;
+	}
 	return 0;
 }
 
-static int c_new_fluid_player(lua_State *L) {  /* synth */
-	fluid_synth_t*  synth  = (fluid_synth_t*)lua_tointeger(L, 1);
+static int c_new_fluid_player(lua_State *L) {  /* synthnum,playernum */
+	int           synthnum = (int)luaL_checkinteger(L, 1);
+	int          playernum = (int)luaL_checkinteger(L, 2);
+	fluid_synth_t*  synth  = synths[synthnum];
 	fluid_player_t* player = new_fluid_player(synth);
-    lua_pushinteger(L, (lua_Integer)player); /* pointer->integer */
+	if ((int)player == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	players[playernum] = player;
+	lua_pushinteger(L, playernum);
 	return 1;
 }
 
-static int c_delete_fluid_player(lua_State *L) {  /* player */
-	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
+static int c_delete_fluid_player(lua_State *L) {  /* playernum */
+	int              playernum = (int)luaL_checkinteger(L, 1);
+	fluid_player_t* player = players[playernum];
 	delete_fluid_player(player);   /* always returns FLUID_OK */
+	players[playernum] = 0;
 	return 1;
 }
 
@@ -180,58 +203,60 @@ For convenience, there's also a fluid_synth_bank_select() function (the
 bank select message is normally sent using a control change message).
 */
 static int c_fluid_synth_error(lua_State *L) {  /* synth */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	char* msg = fluid_synth_error(synth);
    	lua_pushstring(L, msg);
 	return 1;
 }
 
 static int c_fluid_synth_sfload(lua_State *L) {  /* synth,filename,reassign */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	const char* filename = lua_tostring(L, 2);
 	int reassign_presets = lua_toboolean(L, 3);
 	int rc = fluid_synth_sfload(synth, filename, reassign_presets);
+	if ((int)rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }
 
 static int c_fluid_synth_sfont_select(lua_State *L) {  /* synth,cha,sfid */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	lua_Integer channel = lua_tointeger(L, 2);
 	lua_Integer sf_id   = lua_tointeger(L, 3);
 	int rc = fluid_synth_sfont_select(synth, channel, sf_id);
+	if ((int)rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }
 
 static int c_fluid_player_add(lua_State *L) {  /* player,midifilename */
-	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
+	fluid_player_t* player = players[lua_tointeger(L, 1)];
 	const char* filename = lua_tostring(L, 2);
 	int rc = fluid_player_add(player, filename);
-   	lua_pushinteger(L, rc);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	lua_pushinteger(L, rc);
 	return 1;
 }
-static int c_fluid_player_play(lua_State *L) {  /* player */
-	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
+static int c_fluid_player_play(lua_State *L) {  /* playernum */
+	fluid_player_t* player = players[lua_tointeger(L, 1)];
 	int rc = fluid_player_play(player);
    	lua_pushinteger(L, rc);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	lua_pushinteger(L, rc);
 	return 1;
 }
 /*
 sourceforge.net/p/fluidsynth/code-git/ci/master/tree/fluidsynth/src/fluidsynth.c
 */
 static int c_fast_render_loop(lua_State *L) {
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
-	fluid_synth_t* synth       = (fluid_synth_t*)   lua_tointeger(L, 2);
-	fluid_player_t* player     = (fluid_player_t*)  lua_tointeger(L, 3);
-	fluid_file_renderer_t* renderer;
-	renderer = new_fluid_file_renderer (synth);
+	fluid_synth_t*       synth = synths[lua_tointeger(L, 1)];
+	fluid_player_t*     player = players[lua_tointeger(L, 2)];
+	fluid_file_renderer_t* renderer = new_fluid_file_renderer (synth);
 	if (!renderer) return 0;
 	while (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
 /*
    fluidsynth: error:
      fluid_rvoice_event_dispatch: Unknown method (nil) to dispatch!
-
    printf("FLUID_PLAYER_PLAYING = %d\n",FLUID_PLAYER_PLAYING);
    Should usleep here for 0.1 sec or so, no ?
 */
@@ -242,76 +267,81 @@ static int c_fast_render_loop(lua_State *L) {
 	return 1;
 } 
 static int c_fluid_player_join(lua_State *L) {  /* player */
-	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
+	fluid_player_t* player = players[lua_tointeger(L, 1)];
 	int rc = fluid_player_join(player);
-   	lua_pushinteger(L, rc);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	lua_pushinteger(L, rc);
 	return 1;
 }
 static int c_fluid_player_stop(lua_State *L) {  /* player */
-	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
+	fluid_player_t* player = players[lua_tointeger(L, 1)];
 	int rc = fluid_player_stop(player);
-   	lua_pushinteger(L, rc);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	lua_pushinteger(L, rc);
 	return 1;
 }
 
 static int c_fluid_synth_program_change(lua_State *L) { /* synth,cha,patch */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	lua_Integer channel = lua_tointeger(L, 2);
 	lua_Integer program = lua_tointeger(L, 3);
 	int rc = fluid_synth_program_change(synth, channel, program);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }
 
 static int c_fluid_synth_cc(lua_State *L) { /* synth,cha,cc,val */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	lua_Integer cha = lua_tointeger(L, 2);
 	lua_Integer cc  = lua_tointeger(L, 3);
 	lua_Integer val = lua_tointeger(L, 4);
 	int rc = fluid_synth_cc(synth, cha, cc, val);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }
 
 static int c_fluid_synth_noteon(lua_State *L) { /* synth,cha,note,vel */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	int cha  = lua_tointeger(L, 2);
 	int note = lua_tointeger(L, 3);
 	int vel  = lua_tointeger(L, 4);
 	int rc = fluid_synth_noteon(synth, cha, note, vel);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }
 
 static int c_fluid_synth_noteoff(lua_State *L) {  /* synth,cha,note */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	lua_Integer cha  = lua_tointeger(L, 2);
 	lua_Integer note = lua_tointeger(L, 3);
 	int rc = fluid_synth_noteoff(synth, cha, note);
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }
 
 static int c_fluid_synth_pitch_bend(lua_State *L) { /* synth,cha,val=0-16383 */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	lua_Integer cha  = lua_tointeger(L, 2);
 	lua_Integer val  = lua_tointeger(L, 3);
 	int rc = fluid_synth_pitch_bend(synth, cha, val);
    	lua_pushinteger(L, rc);  /* FLUID_OK or FLUID_FAILED */
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
 	return 1;
 }
 
 static int c_fluid_synth_pitch_bend_sens(lua_State *L) { /* synth,cha,val */
-	fluid_synth_t* synth = (fluid_synth_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth = synths[(int)luaL_checkinteger(L, 1)];
 	lua_Integer cha  = lua_tointeger(L, 2);
 	lua_Integer val  = lua_tointeger(L, 3);
-	/* pitch wheel semi-range in semitones, default 2 semitones */
-/*
-	not present in 1.1.5-2
-	int rc = fluid_synth_pitch_bend_sens(synth, cha, val);
-*/
-	int rc = -1;
-   	lua_pushinteger(L, rc);  /* FLUID_OK or FLUID_FAILED */
+	/* pitch wheel semi-range in semitones, default 2 semitones
+	   not present in 1.1.5-2
+	   int rc = fluid_synth_pitch_bend_sens(synth, cha, val);
+	*/
+   	lua_pushnil(L);
 	return 1;
 }
 
@@ -345,16 +375,18 @@ static int c_fluid_get_userconf(lua_State *L) { /* fluidsynth/shell.h */
 
 static int c_fluid_player_add_mem(lua_State *L) { /* fluidsynth/midi.h */
 	/* (fluid_player_t* player, const void *buffer, size_t len) */
-	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
+	fluid_player_t* player = players[lua_tointeger(L, 1)];
 	const char *buffer = lua_tostring(L, 2);
 /* http://stackoverflow.com/questions/5547131/c-question-const-void-vs-void */
 	size_t length = (size_t)lua_tointeger(L, 3);
 	lua_pushinteger(L, fluid_player_add_mem(player, buffer, length));
+	/* returns void */
+	lua_pushboolean(L, 1);
 	return 1;
 }
 
 static int c_fluid_settings_copystr(lua_State *L) {
-	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	fluid_settings_t* settings = settingses[(int)luaL_checkinteger(L, 1)];
 	const char* key = lua_tostring(L, 2);
 	const int length = 1024;
 	char *buffer = malloc(length);
@@ -364,7 +396,7 @@ static int c_fluid_settings_copystr(lua_State *L) {
 }
 
 static int c_fluid_settings_getnum(lua_State *L) {
-    fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	fluid_settings_t* settings = settingses[(int)luaL_checkinteger(L, 1)];
 	const char* key = lua_tostring(L, 2);
 	lua_Number val = 0.0;
 	int rc = fluid_settings_getnum(settings, key, &val);
@@ -373,9 +405,9 @@ static int c_fluid_settings_getnum(lua_State *L) {
 }
 
 static int c_fluid_settings_getint(lua_State *L) {
-    fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	fluid_settings_t* settings = settingses[(int)luaL_checkinteger(L, 1)];
 	const char* key = lua_tostring(L, 2);
-	lua_Integer val = 0;
+	int         val = 0;
 	int rc = fluid_settings_getint(settings, key, &val);
 	if (rc) { lua_pushinteger(L,val); } else { lua_pushnil(L); }
 	return 1;
@@ -390,13 +422,13 @@ static int c_fluid_settings_getint(lua_State *L) {
 
 /* ----------------- evolved from C-midialsa.c ---------------- */
 struct constant {  /* Gems p. 334 */
-    const char * name;
-    int value;
+	const char * name;
+	int value;
 };
 static const struct constant constants[] = {
-    /* {"Version", Version}, */
+	/* {"Version", Version}, */
 	/* {"FLUID_OK",                   FLUID_OK}, misc.h ?? */
-    {NULL, 0}
+	{NULL, 0}
 };
 
 static const luaL_Reg prv[] = {  /* private functions */

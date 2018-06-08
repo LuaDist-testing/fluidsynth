@@ -6,8 +6,8 @@
 --  This script is free software; you can redistribute it and/or   --
 --         modify it under the same terms as Lua5 itself.          --
 ---------------------------------------------------------------------
-local Version = '1.0  for Lua5'
-local VersionDate  = '13aug2014';
+local Version = '2.0  for Lua5'
+local VersionDate  = '25apr2015';
 local Synopsis = [[
 program_name [options] [filenames]
 ]]
