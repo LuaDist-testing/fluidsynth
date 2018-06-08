@@ -131,7 +131,8 @@ Included are basic functions:<B>
 <A HREF="#is_midifile">is_midifile</A>,
 <A HREF="#default_settings">default_settings</A>,
 <A HREF="#all_synth_errors">all_synth_errors</A>,
-<A HREF="#error_file_name">error_file_name</A>
+<A HREF="#error_file_name">error_file_name</A>,
+<A HREF="#get">get</A>
 </B></p>
 <dl>
 <dt><B><I><a name="read_config_file">soundfonts =
@@ -210,7 +211,7 @@ for <I>midi_router</I> is introduced.
 </dd>
 
 <dt><B><I><a name="sf_load">filename2sf_id =
-FS.sf_load(synth, {'my_gm.sf2', 'my_piano.sf2',})</a></I></B></dt>
+FS.sf_load(synth, {'load my_gm.sf2', 'load my_piano.sf2',})</a></I></B></dt>
 <dd><p>
 This wraps the library routine <I>fluid_synth_sfload()</I>,
 calling it once for each soundfont.
@@ -223,10 +224,9 @@ except that <I>my_piano.sf2</I> offers a much nicer piano sound.
 </p><p>
 In practice, the array of soundfonts will usually be the output of a
 previous call to <I><A HREF="#read_config_file">read_config_file()</A></I><BR>
-Since version <B>1.7</B> it can include both <I>load</I> and <I>select</I>
-commands.
+Since version 1.7 it can include both <I>load</I> and <I>select</I> commands.
 </p><p>
-It returns an table where the keys are filenames of the soundfonts,
+It returns a table where the keys are filenames of the soundfonts,
 and the values are the <I>soundfont_ids</I> that represent them.
 The <I>soundfont_ids</I> are stack indexes starting from 1;
 They are only needed if you want to invoke
@@ -310,7 +310,12 @@ This corresponds to the library routine <I>fluid_synth_program_change()</I>
 <dt><B><I><a name="control_change">
 FS.control_change(synth, channel, controller, value)</a></I></B></dt>
 <dd><p>
-This corresponds to the library routine <I>fluid_synth_cc()</I>
+This corresponds to the library routine <I>fluid_synth_cc()</I><BR>
+The <I>fluidsynth</I> C-library implements only a selection of controllers:
+0 (bank select), 1 (modulation), 7 (channel volume), 10 (pan),
+11 (expression), 64 (sustain pedal); also 91 (reverb), and 93 (chorus).
+The last two depend on the corresponding generator as defined in the SoundFont.
+
 </p></dd>
 
 <dt><B><I><a name="pitch_bend">
@@ -389,7 +394,18 @@ Returns the file-name of the temporary-file used to hold all the C-library's
 the process many <i>synths</I> may be started and stopped.
 Therefore the application should explicity remove the file just before exit:
 &nbsp; <CODE>os.remove(FS.error_file_name())</CODE>
-</p></dd></dl>
+</p></dd>
+
+<dt><B><I><a name="get">FS.get(synth, parameter)</a></I></B></dt>
+<dd><P>
+Returns the current value of the setting of <I>parameter</I>,
+invoking either
+<I>fluid_settings_getstr()</I>,
+<I>fluid_settings_getnum()</I> or
+<I>fluid_settings_getint()</I>, as appropriate.
+</p></dd>
+
+</dl>
 
 <p></p><hr />
 <h2><a name="examples">EXAMPLES</a></h2>
@@ -417,7 +433,7 @@ so you should be able to install it with the command:</p>
  # luarocks install --server=http://rocks.moonscript.org fluidsynth</pre>
 <p>or:</p>
 <pre>
- # luarocks install http://www.pjb.com.au/comp/lua/fluidsynth-1.7-0.rockspec</pre>
+ # luarocks install http://www.pjb.com.au/comp/lua/fluidsynth-1.8-0.rockspec</pre>
 <p>It depends on the <I>fluidsynth</I> library and its header-files;
 for example on Debian you may need:
 </p><pre>
@@ -430,6 +446,7 @@ or on Centos you may need:</p><pre>
 <hr />
 <h2><a name="changes">CHANGES</a></h2>
 <pre>
+ 20140913 1.8 introduce get(synth, parameter) to get a current setting
  20140904 1.7 get both 'load' and 'select' commands from the config file
  20140901 1.6 delete_synth doesn't automatically remove TmpFile
  20140830 1.5 new_player knows '-' is stdin, and can play in-memory MIDI-data
@@ -453,8 +470,12 @@ http://www.pjb.com.au/comp/contact.html</a></p>
  man fluidsynth
  /usr/include/fluidsynth.h
  /usr/include/fluidsynth/*.h
+ /usr/include/fluidsynth/*.h
+ /usr/share/soundfonts/*.sf2
+ /usr/share/sounds/sf2/*.sf2
  <a href="http://fluidsynth.sourceforge.net/api/">http://fluidsynth.sourceforge.net/api/</a>
  <a href="http://www.pjb.com.au">http://www.pjb.com.au</a>
+ <a href="http://www.pjb.com.au/muscript/gm.html">http://www.pjb.com.au/muscript/gm.html</a>
  <a href="http://www.pjb.com.au/comp/index.html#lua">http://www.pjb.com.au/comp/index.html#lua</a>
  <a href="http://www.pjb.com.au/comp/lua/fluidsynth.html">http://www.pjb.com.au/comp/lua/fluidsynth.html</a>
  <a href="http://www.pjb.com.au/comp/lua/midialsa.html">http://www.pjb.com.au/comp/lua/midialsa.html</a>

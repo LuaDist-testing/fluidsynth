@@ -6,8 +6,8 @@
 --  This script is free software; you can redistribute it and/or   --
 --         modify it under the same terms as Lua5 itself.          --
 ---------------------------------------------------------------------
-local Version = '1.6'  -- if -s is given, still read the non-'load' config
-local VersionDate  = '03sep2014';
+local Version = '1.7'  -- if -s is given, use the fluidsynth.lua 1.7 syntax
+local VersionDate  = '04sep2014';
 local Synopsis = [[
  fluadity &                     # a simple alsa-client , o/p to soundcard
  fluadity -i ProKeys &          # likewise, and connects from the ProKeys
@@ -16,7 +16,7 @@ local Synopsis = [[
  fluadity /tmp/t.mid /tmp/t.wav # converts midi to wav
  fluadity /tmp/t.mid            # like aplaymidi -p TiMidity /tmp/t.mid
  fluadity - /tmp/t.wav          # like timidity -Ow -o /tmp/t.wav -
- fluadity -                     # like timidity -     
+ fluadity -                     # like timidity -
  perldoc fluadity               # read the manual :-)
 ]]
 
@@ -53,7 +53,7 @@ local iarg=1; while arg[iarg] ~= nil do
 		ClientName = arg[iarg]
 	elseif first_letter == 's' then
 		iarg = iarg+1
-		table.insert(Soundfonts, arg[iarg])
+		table.insert(Soundfonts, 'load '..arg[iarg])  -- fluidsynth.lua 1.7
 	else
 		local n = string.gsub(arg[0],"^.*/","",1)
 		print(n.." version "..Version.."  "..VersionDate.."\n\n"..Synopsis)

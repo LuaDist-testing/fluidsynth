@@ -46,6 +46,16 @@ local synth,msg = FS.new_synth()
 if synth == nil then print(msg) end
 -- if audio.driver==alsa, could read /proc/asound/devices to help
 -- guess best choice for audio.alsa.device (such as: "hw:0", "plughw:1")
+
+local val,msg = FS.get(synth,'synth.audio-groups')
+print('synth.audio-groups is',val)
+local val,msg = FS.get(synth,'synth.midi-bank-select')
+print('synth.midi-bank-select is',val)
+local val,msg = FS.get(synth,'synth.gain')
+print('synth.gain is',val)
+local val,msg = FS.get(synth,'sprogthwloop')
+print('sprogthwloop is',val, msg)
+
 print("about to call sf_load")
 local sf_ids,msg = FS.sf_load(synth, soundfonts)
 if sf_ids == nil then print(msg) end
@@ -63,9 +73,9 @@ local filename = '/home/pjb/www/muscript/samples/courante.mid'
 fh = assert(io.open(filename, "rb"))
 local midi = fh:read('*all')
 fh:close()
-print('courante.mid length is', string.len(midi))
+print('courante.mid length is '..string.len(midi)..' bytes')
 if string.match(midi, '^MThd') then
-	print('it begins with MThd')
+	print('and it begins with MThd')
 end
 print('about to call new_player on in-memory MIDI data')
 local player = assert(FS.new_player(synth, midi))

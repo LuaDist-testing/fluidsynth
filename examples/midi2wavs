@@ -13,8 +13,8 @@ local FS   = nil
 pcall(function() FS = require 'fluidsynth' end)
 -- require 'DataDumper'
 
-local Version = '1.1  for Lua5'
-local VersionDate  = '24aug2014';
+local Version = '1.2  for Lua5'
+local VersionDate  = '07sep2014';
 local Synopsis = [[
   midi2wavs foo.mid
 ]]
@@ -69,6 +69,7 @@ end
 
 local Timidity   = which('timidity')
 local Fluidsynth = which('fluidsynth')
+local Normalise  = which('normalize-audio')
 
 fh = assert(io.open(filename, "rb"))
 local midi = fh:read('*all')
@@ -143,12 +144,15 @@ for i,channel in ipairs(channels) do
 		  .. ' -r 44100 /home/soundfonts/Ultimate.sf2 ' .. cha_midinames[i]
 		os.execute(command)
 	end
+	if Normalise then
+		os.execute(Normalise..' '..cha_filenames[i])
+	end
 end
 
 if Quiet then os.exit() end
 
 local midifade_cmd = 'midifade -o 0'
-local ecasound_cmd = 'ecasound -Md:alsaseq,129:0 \\\n'
+local ecasound_cmd = 'ecasound -Md:alsaseq,midifade:0 \\\n'
 for i,channel in ipairs(channels) do
 	midifade_cmd = midifade_cmd .. string.format(' c%dm7v80',channel)
 	local cha_filename = cha_filenames[i]
@@ -194,7 +198,7 @@ For example:
 
  suggested commands for a simple mixdown:
  midifade -o 0 c1m7v80 c2m7v80 c3m7v80 c4m7v80 c5m7v80 c6m7v80
- ecasound -Md:alsaseq,129:0 \
+ ecasound -Md:alsaseq,midifade:0 \
    -a:1 -i:/tmp/t_cha1.wav -ea:63 -km:1,0,100,7,2 \
    -a:2 -i:/tmp/t_cha2.wav -ea:63 -km:1,0,100,7,3 \
    -a:3 -i:/tmp/t_cha3.wav -ea:63 -km:1,0,100,7,4 \
@@ -237,6 +241,7 @@ Print the Version
 
 =head1 CHANGES
 
+ 20140907 1.2 uses normalize-audio (if present) on the output files
  20140824 1.1 uses fluidsynth.lua with 'fast.render'
  20140805 1.0 first working version
 

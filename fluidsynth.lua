@@ -7,8 +7,8 @@
 ---------------------------------------------------------------------
 
 local M = {} -- public interface
-M.Version     = '1.7' --  get both 'load' and 'select' commands from config
-M.VersionDate = '04sep2014'
+M.Version     = '1.8' -- introduce get(synth, parameter)
+M.VersionDate = '13sep2014'
 
 local ALSA = nil -- not needed if you never use play_event
 
@@ -19,6 +19,7 @@ local Synth2fastRender     = {}
 local ConfigFileSettings   = {}
 local FLUID_FAILED         = -1  -- /usr/include/fluidsynth/misc.h
 local TmpName              = nil -- used to save the C-library's stderr
+local DefaultSoundfont     = nil
 
 -- http://fluidsynth.sourceforge.net/api/
 -- http://fluidsynth.sourceforge.net/api/index.html#Sequencer
@@ -96,7 +97,7 @@ local DefaultOption = {   -- the default synthesiser options
 	['synth.dump']             = false,  -- unused
 	['synth.effects-channels'] = 2,
 	['synth.gain']             = 0.2,    -- number, not just integer
-    ['synth.ladspa.active']    = false,
+    ['synth.ladspa.active']    = false,  -- LADSPA
     ['synth.midi.channels']    = 16,
 	['synth.midi-bank-select'] = 'gs',
     -- gm: ignores CC0 and CC32 messages.
@@ -193,7 +194,7 @@ function M.error_file_name()   -- so the app can remove it
 	return TmpName
 end
 
-function set(settings, key, val)   -- there are also the _get routines...
+function set(settings, key, val)  -- typically called before a synth exists
 	if type(key) == 'nil' then
 		return nil, "fluidsynth: can't set the value for a nil key"
 	end
@@ -207,21 +208,21 @@ function set(settings, key, val)   -- there are also the _get routines...
 		if key=='synth.sample-rate' or key=='synth.gain' then
 			local rc = prv.fluid_settings_setnum(settings, key, val)
 			if rc == 1 then return true
-			else return nil,M.synth_error(synth) end
+			else return nil,M.synth_error(synth) end   -- BUG
 		elseif type(val) == 'number' then
 			local rc = prv.fluid_settings_setint(settings, key, round(val))
 			if rc == 1 then return true
-			else return nil,M.synth_error(synth) end
+			else return nil,M.synth_error(synth) end   -- BUG
 		elseif type(val) == 'boolean' then   -- 1.1
 			local v = 0
 			if val then v = 1 end
 			local rc = prv.fluid_settings_setint(settings, key, v)
 			if rc == 1 then return true
-			else return nil,M.synth_error(synth) end
+			else return nil,M.synth_error(synth) end   -- BUG
 		elseif type(val) == 'string' then
 			local rc = prv.fluid_settings_setstr(settings, key, val)
 			if rc == 1 then return true
-			else return nil,M.synth_error(synth) end
+			else return nil,M.synth_error(synth) end   -- BUG
 		else
 			return nil,'fluidsynth knows no '..key..' setting of '..type(val)..' type'
 		end
@@ -230,6 +231,7 @@ function set(settings, key, val)   -- there are also the _get routines...
 	end
 	return true
 end
+
 
 ----------------------- basic functions ---------------------
 
@@ -300,14 +302,9 @@ function M.new_synth(arg)
 		if not Synth2fastRender[synth] and arg['audio.driver'] ~= 'none' then
 			local audio_driver = new_audio_driver(settings, synth)
 		end
+--DefaultSoundfont = prv.fluid_settings_copystr(settings,
+-- 'synth.default-soundfont');  NOT SET on my debian stable...
 		return synth   -- that's an integer cast of a C-pointer
---	elseif arg_type == 'number' then
---		print ('DEPRECATED: new_synth(number) ; arg must be a table !!')
---		local settings = arg
---		local synth = prv.new_fluid_synth(settings)
---		if synth == FLUID_FAILED then return nil, 'new_synth() failed' end
---		Synth2settings[synth] = settings
---		return synth
 	else
 		local msg = 'fluidsynth: new_synth arg must be table, not '
 		return nil, msg..arg_type
@@ -337,9 +334,19 @@ function M.sf_load( synth, commands )
 				  '^%s*select%s+(%d+)%s+(%d+)%s+(%d+)%s+(%d+)%s*$')
 					-- print('cha=',cha,'sf=',sf,'bank=',bank,'patch=',patch)
 				if cha and sf and bank and patch then
-					-- must check synth.midi-bank-select! gm, gs, xg or mma ?
 					M.sf_select(synth, cha, sf)
-					M.control_change(synth, cha, 0, bank)
+					local bank_select = M.get(synth, 'synth.midi-bank-select')
+					if bank_select == 'gs' then   -- 1.8
+						M.control_change(synth, cha, 0, bank)
+					elseif bank_select == 'xg' then
+						M.control_change(synth, cha, 32, bank)
+					elseif bank_select == 'mma' then
+						local msb = math.floor(bank/128)
+						local lsb = bank % 128
+						M.control_change(synth, cha,  0, msb)
+						M.control_change(synth, cha, 32, lsb)
+					-- else warning ?
+					end
 					M.patch_change(synth, cha, patch)
 				else
 					return nil, 'config bad format: '..line
@@ -575,6 +582,35 @@ end
 
 function M.get_userconf()   -- undocumented
 	return prv.fluid_get_userconf()
+end
+
+function M.get(synth, key)  -- typically called AFTER the synth exists
+	local settings = Synth2settings[synth]
+	if type(key) == 'nil' then
+		return nil, "fluidsynth: can't get the value for a nil key"
+	end
+	if type(key) ~= 'string' then
+		return nil,"fluidsynth: the parameter "..tostring(key).." should be a string"
+	end
+	local val = DefaultOption[key]
+	if key=='synth.sample-rate' or key=='synth.gain' then
+		local rc = prv.fluid_settings_getnum(settings, key)
+		if rc == nil then return nil,M.synth_error(synth) end
+		return rc
+	elseif type(val) == 'number' then
+		local rc = prv.fluid_settings_getint(settings, key)
+		if rc == nil then return nil,M.synth_error(synth) end
+		return round(rc)
+	elseif type(val) == 'boolean' then
+		local rc = prv.fluid_settings_getint(settings, key, v)
+		if rc == nil then return nil,M.synth_error(synth) end
+		if rc == 0 then return false else return true end
+	elseif type(val) == 'string' then
+		local rc = prv.fluid_settings_copystr(settings, key)
+		if rc == nil then return nil,M.synth_error(synth) end
+		return rc
+	end
+	return nil, 'fluidsynth knows no '..key..' setting'
 end
 
 ---------------------------------------------------------------

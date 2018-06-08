@@ -353,6 +353,41 @@ static int c_fluid_player_add_mem(lua_State *L) { /* fluidsynth/midi.h */
 	return 1;
 }
 
+static int c_fluid_settings_copystr(lua_State *L) {
+	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	const char* key = lua_tostring(L, 2);
+	const int length = 1024;
+	char *buffer = malloc(length);
+	int rc = fluid_settings_copystr(settings, key, buffer, length);
+	if (rc) { lua_pushstring(L,buffer); } else { lua_pushnil(L); }
+	return 1;
+}
+
+static int c_fluid_settings_getnum(lua_State *L) {
+    fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	const char* key = lua_tostring(L, 2);
+	lua_Number val = 0.0;
+	int rc = fluid_settings_getnum(settings, key, &val);
+	if (rc) { lua_pushnumber(L,val); } else { lua_pushnil(L); }
+	return 1;
+}
+
+static int c_fluid_settings_getint(lua_State *L) {
+    fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	const char* key = lua_tostring(L, 2);
+	lua_Integer val = 0;
+	int rc = fluid_settings_getint(settings, key, &val);
+	if (rc) { lua_pushinteger(L,val); } else { lua_pushnil(L); }
+	return 1;
+}
+
+/*static int c_fluid_settings_getstr_default(lua_State *L) {
+	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	const char* key = lua_tostring(L, 2);
+	lua_pushstring(L, fluid_settings_getstr_default(settings, key));
+	return 1;
+}*/
+
 /* ----------------- evolved from C-midialsa.c ---------------- */
 struct constant {  /* Gems p. 334 */
     const char * name;
@@ -396,6 +431,9 @@ static const luaL_Reg prv[] = {  /* private functions */
     {"fluid_get_sysconf",          c_fluid_get_sysconf},
     {"fluid_get_userconf",         c_fluid_get_userconf},
     {"fluid_player_add_mem",       c_fluid_player_add_mem},
+    {"fluid_settings_copystr",     c_fluid_settings_copystr},
+    {"fluid_settings_getnum",      c_fluid_settings_getnum},
+    {"fluid_settings_getint",      c_fluid_settings_getint},
 	/* {"fluid_synth_pitch_bend_sens",c_fluid_synth_pitch_bend_sens}, */
     {NULL, NULL}
 };
