@@ -514,6 +514,7 @@ function M.note_on(synth, channel, note, velocity)
 end
 
 function M.note_off(synth, channel, note)
+	if note == nil then return nil, 'note_off: argument #3 was nil' end
 	local rc = prv.fluid_synth_noteoff(synth, channel, note)
 	if rc == nil then return nil, M.synth_error(synth)
 	else return true end

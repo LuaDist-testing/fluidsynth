@@ -111,7 +111,7 @@ static int c_new_fluid_synth(lua_State *L) {  /* synthnum */
 	int               synthnum = (int)luaL_checkinteger(L, 1);
 	fluid_settings_t* settings = settingses[synthnum];
 	fluid_synth_t*    synth    = new_fluid_synth(settings);
-	if ((int)synth == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	if ((long int)synth == FLUID_FAILED) { lua_pushnil(L); return 1; }
 	synths[synthnum] = synth;
     lua_pushinteger(L, synthnum); 
     return 1;
@@ -130,7 +130,7 @@ static int c_new_fluid_audio_driver(lua_State *L) {  /* synthnum */
 	fluid_synth_t*    synth    = synths[synthnum];
 	fluid_settings_t* settings = settingses[synthnum];
 	fluid_audio_driver_t* audio_driver=new_fluid_audio_driver(settings,synth);
-	if ((int)audio_driver == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	if ((long int)audio_driver == FLUID_FAILED) { lua_pushnil(L); return 1; }
 	audio_drivers[synthnum] = audio_driver;
     lua_pushinteger(L, synthnum);
 	return 1;
@@ -151,7 +151,7 @@ static int c_new_fluid_player(lua_State *L) {  /* synthnum,playernum */
 	int          playernum = (int)luaL_checkinteger(L, 2);
 	fluid_synth_t*  synth  = synths[synthnum];
 	fluid_player_t* player = new_fluid_player(synth);
-	if ((int)player == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	if ((long int)player == FLUID_FAILED) { lua_pushnil(L); return 1; }
 	players[playernum] = player;
 	lua_pushinteger(L, playernum);
 	return 1;
@@ -214,7 +214,7 @@ static int c_fluid_synth_sfload(lua_State *L) {  /* synth,filename,reassign */
 	const char* filename = lua_tostring(L, 2);
 	int reassign_presets = lua_toboolean(L, 3);
 	int rc = fluid_synth_sfload(synth, filename, reassign_presets);
-	if ((int)rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }
@@ -224,7 +224,7 @@ static int c_fluid_synth_sfont_select(lua_State *L) {  /* synth,cha,sfid */
 	lua_Integer channel = lua_tointeger(L, 2);
 	lua_Integer sf_id   = lua_tointeger(L, 3);
 	int rc = fluid_synth_sfont_select(synth, channel, sf_id);
-	if ((int)rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
+	if (rc == FLUID_FAILED) { lua_pushnil(L); return 1; }
    	lua_pushinteger(L, rc);
 	return 1;
 }

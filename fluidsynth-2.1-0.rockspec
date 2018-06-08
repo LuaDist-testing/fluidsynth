@@ -1,16 +1,16 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "fluidsynth"
-version = "2.0-0"
+version = "2.1-0"
 -- LuaDist source
 source = {
-  tag = "2.0-0",
+  tag = "2.1-0",
   url = "git://github.com/LuaDist-testing/fluidsynth.git"
 }
 -- Original source
 -- source = {
---    url = "http://www.pjb.com.au/comp/lua/fluidsynth-2.0.tar.gz",
---    md5 = "5b623a033939a4fac14afb94e4570eb0"
+--    url = "http://www.pjb.com.au/comp/lua/fluidsynth-2.1.tar.gz",
+--    md5 = "4bd9832b706b702ce8263f5315269381"
 -- }
 description = {
    summary = "Interface to the fluidsynth library",
