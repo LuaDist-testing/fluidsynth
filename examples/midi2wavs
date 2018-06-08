@@ -113,16 +113,14 @@ for i,channel in ipairs(channels) do
 			['audio.file.name'] = cha_filenames[i],
 			['fast.render']     = true,
 		} )
-		for i,val in ipairs(Soundfonts) do
-			local sf_id,msg = FS.sf_load(synth, val)
-			if sf_id == nil then print(msg) end
-		end
+		local sf_id,msg = FS.sf_load(synth, Soundfonts)
 		local player = assert(FS.new_player(synth, cha_midinames[i]))
 		assert(FS.player_play(player))
 		assert(FS.player_join(player))
 		os.execute('sleep 1')   -- we have posix and should use it
 		assert(FS.player_stop(player))
 		FS.delete_synth(synth)
+		os.remove(FS.error_file_name())
 	elseif Timidity and not Noop then
 		-- BUG timidity destroys initial silence, thus destroying coordination
 		-- between the channels (unless they all started at the same time) :-(

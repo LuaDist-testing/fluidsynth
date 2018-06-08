@@ -6,8 +6,8 @@
 --  This script is free software; you can redistribute it and/or   --
 --         modify it under the same terms as Lua5 itself.          --
 ---------------------------------------------------------------------
-local Version = '1.0  for Lua5'
-local VersionDate  = '17aug2014';
+local Version = '1.1  for Lua5'
+local VersionDate  = '25aug2014';
 -- fluadity -c              # a curses-based alsa client, o/p to soundcard
 -- fluadity -c -i ProKeys        # likewise, and connects from the ProKeys
 local Synopsis = [[
@@ -21,6 +21,7 @@ local Synopsis = [[
 ]]
 
 local FS = require 'fluidsynth'
+--require 'DataDumper'
 local Curses     = true
 local InputPort  = nil
 local Soundfonts = {}
@@ -91,9 +92,6 @@ local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
 	table.insert( result, string.sub(s,theStart,-1) )
 	return result
 end
------------------------------------------------------------
-
---require 'DataDumper'
 
 ----------------- the various major function-groups --------------
 
@@ -106,13 +104,13 @@ function quiet_client()
 		['audio.period-size']   = 64,  -- min, for low latency
 		['audio.realtime-prio'] = 85,  -- big, lor low latency
 	} )
-	for i,val in ipairs(Soundfonts) do
-		local sf_id,msg = FS.sf_load(synth, val, 0)
-		if sf_id == nil then print(msg) end
-	end
+	sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
 	while true do
 		local alsaevent = ALSA.input()
-		if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then break end
+		if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then
+			local from = ALSA.listconnectedfrom()
+			if #from == 0 then break end
+		end
 		FS.play_event(synth, alsaevent)   --print(DataDumper(alsaevent))
 	end
 	FS.delete_synth(synth)
@@ -146,7 +144,7 @@ function midi2wav()
 	} )
 	for i,val in ipairs(Soundfonts) do
 		local sf_id,msg = FS.sf_load(synth, val, 0)
-print('sf_id =', sf_id)
+		-- print('sf_id =', sf_id)
 		if sf_id == nil then print(msg) end
 	end
 	local player = assert(FS.new_player(synth, InputFile))
@@ -191,6 +189,7 @@ B<fluadity> - Synthesiser and midi-to-wav converter using the Fluidsynth library
 
  ~> cat ~/.config/fluidsynth
  audio.driver = alsa
+ synth.polyphony = 1024
  load /home/soundfonts/MyGM.sf2
  load /home/soundfonts/ReallyGoodPiano.sf2
  ~>
