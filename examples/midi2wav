@@ -1,0 +1,139 @@
+#!/usr/bin/lua
+-- a functional midi-to-wav convertor
+---------------------------------------------------------------------
+--     This Lua5 script is Copyright (c) 2014, Peter J Billam      --
+--                       www.pjb.com.au                            --
+--  This script is free software; you can redistribute it and/or   --
+--         modify it under the same terms as Lua5 itself.          --
+---------------------------------------------------------------------
+local Version = '1.0  for Lua5'
+local VersionDate  = '15aug2014';
+local Synopsis = [[
+  midi2wav -s /home/soundfonts/MyGM.sf2 song.mid song.wav
+  perldoc midi2wav
+]]
+
+local FS = require 'fluidsynth'
+--require 'DataDumper'
+local InputFile  = '-'
+local Soundfonts = {}
+local OutputFile = 'midi2wav_out.wav'
+
+----------------------- arguments -----------------------
+local iarg=1; while arg[iarg] ~= nil do    -- options
+	if not string.find(arg[iarg], '^-[a-z]') then break end
+	local first_letter = string.sub(arg[iarg],2,2)
+	if first_letter == 'v' then
+		local n = string.gsub(arg[0],"^.*/","",1)
+		print(n.." version "..Version.."  "..VersionDate)
+		os.exit(0)
+	elseif first_letter == 'i' then
+		iarg = iarg+1
+		Input = arg[iarg]
+	elseif first_letter == 'n' then
+		iarg = iarg+1
+		ClientName = arg[iarg]
+	elseif first_letter == 's' then
+		iarg = iarg+1
+		table.insert(Soundfonts, arg[iarg])
+	else
+		local n = string.gsub(arg[0],"^.*/","",1)
+		print(n.." version "..Version.."  "..VersionDate.."\n\n"..Synopsis)
+		os.exit(0)
+	end
+	iarg = iarg+1
+end
+while arg[iarg] ~= nil do    -- input-files
+	if arg[iarg] == '-' then   -- slurp stdin
+    	local tmpfile = '/tmp/midi2wav.'..os.date('%d%H%M%S')..'.mid'
+    	local tmp = assert(io.open(tmpfile,'wb'))
+    	for block in io.stdin:lines(512) do tmp:write(block) end
+    	tmp:close()
+    	os.execute('ls -l '..tmpfile)
+    	InputFile = tmpfile
+		iarg = iarg+1
+	end
+	if not FS.is_midifile(arg[iarg]) then break end
+	InputFile = arg[iarg]
+	iarg = iarg+1
+end
+OutputFile = arg[iarg]
+
+print(' InputFile ='..InputFile)
+print('OutputFile ='..OutputFile)
+
+if #Soundfonts == 0 then
+	Soundfonts[1] = '/home/soundfonts/Ultimate.sf2'
+end
+
+-----------------------------------------------------------
+
+local settings = FS.new_settings()
+FS.set(settings, "audio.driver", "file")
+FS.set(settings, "audio.file.type", "wav")
+FS.set(settings, "audio.file.name", OutputFile)
+local synth = FS.new_synth(settings)
+local audio_driver = FS.new_audio_driver(settings, synth)
+for i,val in ipairs(Soundfonts) do
+	local sf_id,msg = FS.sf_load(synth, val, 0)
+	if sf_id == nil then print(msg) end
+end
+local player = assert(FS.new_player(synth))
+assert(FS.player_add(player, InputFile))
+assert(FS.player_play(player))
+assert(FS.player_join(player))
+os.execute('sleep 1')
+assert(FS.player_stop(player))
+FS.delete_audio_driver(audio_driver)
+FS.delete_player(player)
+FS.delete_synth(synth)
+FS.delete_settings(settings)
+
+--[=[
+
+=pod
+
+=head1 NAME
+
+midi2wav - functional
+
+=head1 SYNOPSIS
+
+  midi2wav -s /home/soundfonts/Ultimate.sf2 /tmp/t.mid /tmp/t.wav
+
+=head1 DESCRIPTION
+
+This script was written as an example,
+to illustrate the I<fluidsynth.lua> module converting
+a MIDI file into a WAV file.
+
+=head1 OPTIONS
+
+=over 3
+
+=item I<-s /home/soundfonts/MyGM.sf2>
+
+Sets the B<s>oundfont which will be used.
+Multiple -s options may be given
+
+=item I<-v>
+
+Print the Version
+
+=back
+
+=head1 DOWNLOAD
+
+This at is available at
+
+=head1 AUTHOR
+
+Peter J Billam, http://www.pjb.com.au/comp/contact.html
+
+=head1 SEE ALSO
+
+ http://www.pjb.com.au/
+
+=cut
+
+]=]

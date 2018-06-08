@@ -1,0 +1,120 @@
+#!/usr/bin/lua
+---------------------------------------------------------------------
+--     This Lua5 script is Copyright (c) 2014, Peter J Billam      --
+--                       www.pjb.com.au                            --
+--                                                                 --
+--  This script is free software; you can redistribute it and/or   --
+--         modify it under the same terms as Lua5 itself.          --
+---------------------------------------------------------------------
+local Version = '1.0  for Lua5'
+local VersionDate  = '17aug2014';
+local Synopsis = [[
+  fluadity                 # a curses-based alsa client, o/p to soundcard
+  fluadity -i ProKeys           # likewise, and connects from the ProKeys
+  fluadity -q    # a silent alsa-client for daemonising, o/p to soundcard
+  fluadity -q -i ProKeys        # likewise, and connects from the ProKeys
+  fluadity /tmp/t.mid /tmp/t.wav  # converts midi to wav
+  fluadity /tmp/t.mid             # like aplaymidi -p TiMidity /tmp/t.mid
+  fluadity - /tmp/t.wav           # like timidity -Ow -o /tmp/t.waw -
+  fluadity -                      # like timidity -     
+]]
+local iarg=1; while arg[iarg] ~= nil do
+	if not string.find(arg[iarg], '^-[a-z]') then break end
+	local first_letter = string.sub(arg[iarg],2,2)
+	if first_letter == 'v' then
+		local n = string.gsub(arg[0],"^.*/","",1)
+		print(n.." version "..Version.."  "..VersionDate)
+		os.exit(0)
+	elseif first_letter == 'c' then
+		whatever()
+	else
+		local n = string.gsub(arg[0],"^.*/","",1)
+		print(n.." version "..Version.."  "..VersionDate.."\n\n"..Synopsis)
+		os.exit(0)
+	end
+	iarg = iarg+1
+end
+
+--[=[
+
+=pod
+
+=head1 NAME
+
+miditurtle - Reading, writing and manipulating MIDI data
+
+=head1 SYNOPSIS
+
+  fluadity                 # a curses-based alsa client, o/p to soundcard
+  fluadity -i ProKeys           # likewise, and connects from the ProKeys
+  fluadity -q    # a silent alsa-client for daemonising, o/p to soundcard
+  fluadity -q -i ProKeys        # likewise, and connects from the ProKeys
+  fluadity /tmp/t.mid /tmp/t.wav  # converts midi to wav
+  fluadity /tmp/t.mid             # like aplaymidi -p TiMidity /tmp/t.mid
+  fluadity - /tmp/t.wav           # like timidity -Ow -o /tmp/t.waw -
+  fluadity -                      # like timidity -     
+  ~> cat ~/.fluadity/config
+  audio:
+    alsa
+  soundfonts:
+    /home/soundfonts/MyGM.sf2
+    /home/soundfonts/ReallyGoodPiano.sf2
+
+=head1 DESCRIPTION
+
+The name I<fluidity> would be a great variant on I<timidity>
+(which in turn is a magnificent variant of I<audacity>),
+but 'fluidity' is already a one-person Nintendo video game, released 6dec2010.
+
+  http://en.wikipedia.org/wiki/Fluidity_%28video_game%29
+  http://www.nintendo.com/gamesites/wii/fluidity/
+
+So the name I<fluadity> was chosen,
+since it also contains I<Lua> which is the language it uses,
+and since it has no previous meaning,
+is easy to pronounce, and is highly searchable.
+
+It is intended to have a much lower latency the I<timidity>,
+so as to be good for real-time work.
+Its command-line is leaner and easier to remember than
+I<timidity>'s (which is however already pretty good).
+
+But: it can only use SoundFonts, and so is less configurable than I<timidity>;
+and when rendering midi to wav it runs in real-time,
+whereas I<timidity> runs flat-out and finishes much faster.
+
+It uses the I<midialsa> and I<fluidity> and I<MIDI> Lua modules,
+which in turn need the I<alsa> and I<fluidsynth> C-libraries
+and associated header-files.
+
+It has very similar functionality to the I<fluidsynth> command,
+but is even easier to use, slightly more restricted in functionality,
+and features a convenient configuration file I<~/fluadity/config>
+
+Because it uses the I<midialsa> library, it feels most at home on I<Linux>
+
+=head1 ARGUMENTS
+
+=over 3
+
+=item I<-v>
+
+Print the Version
+
+=back
+
+=head1 DOWNLOAD
+
+This at is available at
+
+=head1 AUTHOR
+
+Peter J Billam, http://www.pjb.com.au/comp/contact.html
+
+=head1 SEE ALSO
+
+ http://www.pjb.com.au/
+
+=cut
+
+]=]

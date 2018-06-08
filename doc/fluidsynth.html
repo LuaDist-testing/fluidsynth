@@ -1,0 +1,296 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>C&lt;fluidsynth&gt; - a Lua interface to the I&lt;fluidsynth&gt; library</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+
+<!-- INDEX BEGIN -->
+<div name="index">
+<p><a name="__index__"></a></p>
+
+<ul>
+
+	<li><a href="#name">NAME</a></li>
+	<li><a href="#synopsis">SYNOPSIS</a></li>
+	<li><a href="#description">DESCRIPTION</a></li>
+	<li><a href="#functions">FUNCTIONS</a></li>
+	<ul>
+
+		<ul>
+
+			<li><a href="#settings___fs_new_settings__">settings = FS.new_settings()</a></li>
+			<li><a href="#fs_set_settings__audio_driver__alsa_">FS.set(settings, &quot;audio.driver&quot;, &quot;alsa&quot;)</a></li>
+			<li><a href="#synth___fs_new_synth_settings_">synth = FS.new_synth(settings)</a></li>
+			<li><a href="#sf_id___fs_sf_load_synth___filename_sf2__">sf_id = FS.sf_load(synth, 'filename.sf2')</a></li>
+			<li><a href="#audio_driver___fs_new_audio_driver_settings__synth_">audio_driver = FS.new_audio_driver(settings, synth)</a></li>
+			<li><a href="#midiplayer___fs_new_player_synth_">midiplayer = FS.new_player(synth)</a></li>
+			<li><a href="#fs_player_add_midiplayer__midifilename_">FS.player_add(midiplayer, midifilename)</a></li>
+			<li><a href="#fs_player_play_midiplayer_">FS.player_play(midiplayer)</a></li>
+			<li><a href="#fs_note_on_synth__channel__note__velocity_">FS.note_on(synth, channel, note, velocity)</a></li>
+			<li><a href="#fs_note_off_synth__channel__note__velocity_">FS.note_off(synth, channel, note, velocity)</a></li>
+			<li><a href="#fs_patch_change_synth__channel__patch_">FS.patch_change(synth, channel, patch)</a></li>
+			<li><a href="#fs_control_change_synth__channel__controller__value_">FS.control_change(synth, channel, controller, value)</a></li>
+			<li><a href="#fs_pitch_bend_synth__channel__val_">FS.pitch_bend(synth, channel, val)</a></li>
+			<li><a href="#fs_play_event_synth__event_">FS.play_event(synth, event)</a></li>
+			<li><a href="#local_ok___fs_is_soundfont_filename_">local ok = FS.is_soundfont(filename)</a></li>
+			<li><a href="#local_ok___fs_is_midifile_filename_">local ok = FS.is_midifile(filename)</a></li>
+			<li><a href="#fs_delete_settings_settings_">FS.delete_settings(settings)</a></li>
+			<li><a href="#fs_delete_synth_synth_">FS.delete_synth(synth)</a></li>
+			<li><a href="#fs_delete_audio_driver_audio_driver_">FS.delete_audio_driver(audio_driver)</a></li>
+			<li><a href="#fs_delete_player_midiplayer_">FS.delete_player(midiplayer)</a></li>
+		</ul>
+
+	</ul>
+
+	<li><a href="#example">EXAMPLE</a></li>
+	<li><a href="#download">DOWNLOAD</a></li>
+	<li><a href="#changes">CHANGES</a></li>
+	<li><a href="#author">AUTHOR</a></li>
+	<li><a href="#see_also">SEE ALSO</a></li>
+</ul>
+
+<hr name="index" />
+</div>
+<!-- INDEX END -->
+
+<p>
+</p>
+<hr />
+<h2><a name="name">NAME</a></h2>
+<p><code>fluidsynth</code> - a Lua interface to the <em>fluidsynth</em> library</p>
+<p>
+</p>
+<hr />
+<h2><a name="synopsis">SYNOPSIS</a></h2>
+<pre>
+ local FS = require 'fluidsynth'
+ local settings = FS.new_settings()
+ FS.set(&quot;audio.driver&quot;, &quot;jack&quot;)
+ local synth    = FS.new_synth(settings)
+ local adriver  = FS.new_audio_driver(settings, synth)
+ assert(FS.sf_load(&quot;/home/soundfonts/MyGM.sf2&quot;, 1))
+ local channel = 5
+ FS.patch_change(synth, channel, 87)
+ FS.control_change(synth, channel, 7, 127)
+ FS.noteon(synth, channel, 60, 100)   -- note, velocity
+ os.execute('sleep 2')
+ FS.noteoff(synth, channel, 60)       -- note
+ FS.delete_audio_driver(adriver)
+ FS.delete_synth(synth)
+ FS.delete_settings(settings)</pre>
+<p>
+</p>
+<hr />
+<h2><a name="description">DESCRIPTION</a></h2>
+<p>This Lua module offers a simplified calling interface
+to the Fluidsynth Library.</p>
+<p>It is early in its very early versions,
+and the API is expected to change and evolve.</p>
+<p>It is a relatively thick wrapper; the library's voluminous
+output on stderr has been redirected so the module can be used
+for example within a <em>Curses</em> app, and the return codes on failure
+have adopted the <em>nil,errormessage</em> convention of Lua
+so they can be used for example with <em>assert()</em></p>
+<p>
+</p>
+<hr />
+<h2><a name="functions">FUNCTIONS</a></h2>
+<p>Unless otherwise stated,
+these functions all return <em>nil,errormessage</em> on failure.</p>
+<p>
+</p>
+<h3><a name="settings___fs_new_settings__">settings = FS.new_settings()</a></h3>
+<p>This corresponds to the library routine <em>new_fluid_settings()</em>
+The return value is a C pointer, so if you mess with it the library will crash.</p>
+<p>
+</p>
+<h3><a name="fs_set_settings__audio_driver__alsa_">FS.set(settings, &quot;audio.driver&quot;, &quot;alsa&quot;)</a></h3>
+<p>This corresponds to the library routines
+<em>fluid_settings_setstr()</em>,
+<em>fluid_settings_setnum()</em>, and
+<em>fluid_settings_setint()</em>.
+The module knows which type each parameter should be,
+and calls the correct routine automatically.</p>
+<p>
+</p>
+<h3><a name="synth___fs_new_synth_settings_">synth = FS.new_synth(settings)</a></h3>
+<p>This corresponds to the library routine <em>new_fluid_synth()</em>
+The return value is a C pointer, so if you mess with it the library will crash.</p>
+<p>
+</p>
+<h3><a name="sf_id___fs_sf_load_synth___filename_sf2__">sf_id = FS.sf_load(synth, 'filename.sf2')</a></h3>
+<p>This corresponds to the library routine <em>(fluid_synth_sfload)</em></p>
+<p>It returns the soundfont_id,
+which is a C pointer, so don't mess with it.</p>
+<p>A <em>synth</em> may load more than one soundfont;
+they go onto a sort of stack, and for a given patch,
+<em>fluidsynth</em> will use that soundfont closest to the top of the
+stack which can supply the requested patch. For example:</p>
+<pre>
+ assert(FS.sf_load(synth, 'MyGM.sf2')) -- the piano is not good
+ assert(FS.sf_load(synth, 'MyReallyGoodPiano.sf2'))</pre>
+<p>
+</p>
+<h3><a name="audio_driver___fs_new_audio_driver_settings__synth_">audio_driver = FS.new_audio_driver(settings, synth)</a></h3>
+<p>This corresponds to the library routine <em>new_fluid_audio_driver()</em>
+The return value is a C pointer.</p>
+<p>
+</p>
+<h3><a name="midiplayer___fs_new_player_synth_">midiplayer = FS.new_player(synth)</a></h3>
+<p>This corresponds to the library routine <em>new_fluid_player()</em>
+The return value is a C pointer.</p>
+<p>
+</p>
+<h3><a name="fs_player_add_midiplayer__midifilename_">FS.player_add(midiplayer, midifilename)</a></h3>
+<p>This corresponds to the library routine <em>fluid_player_add()</em></p>
+<p>
+</p>
+<h3><a name="fs_player_play_midiplayer_">FS.player_play(midiplayer)</a></h3>
+<p>This corresponds to the library routine <em>fluid_player_play()</em></p>
+<p>
+</p>
+<h3><a name="fs_note_on_synth__channel__note__velocity_">FS.note_on(synth, channel, note, velocity)</a></h3>
+<p>This corresponds to the library routine <em>fluid_synth_noteon()</em></p>
+<p>
+</p>
+<h3><a name="fs_note_off_synth__channel__note__velocity_">FS.note_off(synth, channel, note, velocity)</a></h3>
+<p>This corresponds to the library routine <em>fluid_synth_noteoff()</em></p>
+<p>
+</p>
+<h3><a name="fs_patch_change_synth__channel__patch_">FS.patch_change(synth, channel, patch)</a></h3>
+<p>This corresponds to the library routine <em>fluid_synth_program_change()</em></p>
+<p>
+</p>
+<h3><a name="fs_control_change_synth__channel__controller__value_">FS.control_change(synth, channel, controller, value)</a></h3>
+<p>This corresponds to the library routine <em>fluid_synth_cc()</em></p>
+<p>
+</p>
+<h3><a name="fs_pitch_bend_synth__channel__val_">FS.pitch_bend(synth, channel, val)</a></h3>
+<p>This corresponds to the library routine <em>fluid_synth_pitch_bend()</em>.
+The value should lie between 0 and 16383,
+where 8192 represents the default, central, pitch-wheel position.</p>
+<p>
+</p>
+<h3><a name="fs_play_event_synth__event_">FS.play_event(synth, event)</a></h3>
+<p>This is a wrapper for the above <em>note_on</em>, <em>note_off</em>, <em>patch_change</em>,
+<em>control_change</em> and <em>pitch_bend routines</em>, which accepts events
+of two different types used in the author's other midi-related modules:</p>
+<p>1) midialsa events, see: <a href="http://www.pjb.com.au/comp/lua/midialsa.html">http://www.pjb.com.au/comp/lua/midialsa.html</a></p>
+<p>2) MIDI 'opus' events, see: <a href="http://www.pjb.com.au/comp/lua/MIDI.html#events">http://www.pjb.com.au/comp/lua/MIDI.html#events</a></p>
+<p>It will currently only handle real-time events,
+so every event received will be played immediately.
+It will currently not handle 'note' events (of either type).</p>
+<p>
+</p>
+<h3><a name="local_ok___fs_is_soundfont_filename_">local ok = FS.is_soundfont(filename)</a></h3>
+<p>This corresponds to the library routine <em>fluid_is_soundfont()</em>
+which checks for the &quot;RIFF&quot; header in the file.
+It is useful only to distinguish between SoundFont and MIDI files.</p>
+<p>
+</p>
+<h3><a name="local_ok___fs_is_midifile_filename_">local ok = FS.is_midifile(filename)</a></h3>
+<p>This corresponds to the library routine <em>fluid_is_midifile()</em>
+The current implementation only checks for the &quot;MThd&quot; header in the file.
+It is useful only to distinguish between SoundFont and MIDI files.</p>
+<p>
+</p>
+<h3><a name="fs_delete_settings_settings_">FS.delete_settings(settings)</a></h3>
+<p>This corresponds to the library routine <em>delete_fluid_settings()</em></p>
+<p>
+</p>
+<h3><a name="fs_delete_synth_synth_">FS.delete_synth(synth)</a></h3>
+<p>This corresponds to the library routine <em>delete_fluid_synth()</em></p>
+<p>
+</p>
+<h3><a name="fs_delete_audio_driver_audio_driver_">FS.delete_audio_driver(audio_driver)</a></h3>
+<p>This corresponds to the library routine <em>delete_fluid_audio_driver()</em></p>
+<p>
+</p>
+<h3><a name="fs_delete_player_midiplayer_">FS.delete_player(midiplayer)</a></h3>
+<p>This corresponds to the library routine <em>delete_fluid_player()</em></p>
+<p>
+</p>
+<hr />
+<h2><a name="example">EXAMPLE</a></h2>
+<pre>
+ #!/usr/bin/lua
+ -- a functional alsa-client soundfont-synth !
+ local FS   = require 'fluidsynth'
+ local ALSA = require 'midialsa'
+ local Input     = 14
+ local Soundfont = '/home/soundfonts/MyGM.sf2'
+ ALSA.client( 'fluidsynth alsa client', 1, 0, false )
+ ALSA.connectfrom( 0, Input )
+ local settings = FS.new_settings()
+ FS.set(settings, &quot;audio.driver&quot;, &quot;alsa&quot;)
+ FS.set(settings, &quot;audio.periods&quot;, 2)       -- min, for low latency
+ FS.set(settings, &quot;audio.period-size&quot;, 64)  -- min, for low latency
+ local synth = FS.new_synth(settings)
+ local audio_driver = FS.new_audio_driver(settings, synth)
+ local sf_id = FS.sf_load(synth, Soundfont, 0)
+ -- you will need to set a patch before any output can be generated!
+ while true do
+   local alsaevent = ALSA.input()
+   if alsaevent[1]==ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then break end
+   FS.play_event(synth, alsaevent)
+ end
+ FS.delete_audio_driver(audio_driver)
+ FS.delete_synth(synth)
+ FS.delete_settings(settings)</pre>
+<p>
+</p>
+<hr />
+<h2><a name="download">DOWNLOAD</a></h2>
+<p>This module is available as a LuaRock in
+<a href="http://rocks.moonscript.org/modules/peterbillam">http://rocks.moonscript.org/modules/peterbillam</a>
+so you should be able to install it with the command:</p>
+<pre>
+ $ su
+ Password:
+ # luarocks install --server=<a href="http://rocks.moonscript.org">http://rocks.moonscript.org</a> fluidsynth</pre>
+<p>or:</p>
+<pre>
+ # luarocks install <a href="http://www.pjb.com.au/comp/lua/fluidsynth-1.0-0.rockspec">http://www.pjb.com.au/comp/lua/fluidsynth-1.0-0.rockspec</a></pre>
+<p>It depends on the <em>fluidsynth</em> library and its header-files;
+for example on Debian you may need:</p>
+<pre>
+ # aptitude install libfluidsynth libfluidsynth-dev</pre>
+<p>or on Centos you may need:</p>
+<pre>
+ # yum install fluidsynth-devel</pre>
+<p>
+</p>
+<hr />
+<h2><a name="changes">CHANGES</a></h2>
+<pre>
+ 20140818 1.0 first working version</pre>
+<p>
+</p>
+<hr />
+<h2><a name="author">AUTHOR</a></h2>
+<p>Peter Billam, 
+<a href="http://www.pjb.com.au/comp/contact.html">http://www.pjb.com.au/comp/contact.html</a></p>
+<p>
+</p>
+<hr />
+<h2><a name="see_also">SEE ALSO</a></h2>
+<pre>
+ man fluidsynth
+ /usr/include/fluidsynth.h
+ /usr/include/fluidsynth/*.h
+ <a href="http://fluidsynth.sourceforge.net/api/">http://fluidsynth.sourceforge.net/api/</a>
+ <a href="http://www.pjb.com.au">http://www.pjb.com.au</a>
+ <a href="http://www.pjb.com.au/comp/index.html#lua">http://www.pjb.com.au/comp/index.html#lua</a>
+ <a href="http://www.pjb.com.au/comp/lua/fluidsynth.html">http://www.pjb.com.au/comp/lua/fluidsynth.html</a>
+ <a href="http://www.pjb.com.au/comp/lua/midialsa.html">http://www.pjb.com.au/comp/lua/midialsa.html</a>
+ <a href="http://www.pjb.com.au/comp/lua/MIDI.html">http://www.pjb.com.au/comp/lua/MIDI.html</a></pre>
+
+</body>
+
+</html>

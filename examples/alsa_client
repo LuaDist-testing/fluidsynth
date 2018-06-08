@@ -1,0 +1,156 @@
+#!/usr/bin/lua
+-- a functional alsa-client soundfont-synth !
+---------------------------------------------------------------------
+--     This Lua5 script is Copyright (c) 2014, Peter J Billam      --
+--                       www.pjb.com.au                            --
+--  This script is free software; you can redistribute it and/or   --
+--         modify it under the same terms as Lua5 itself.          --
+---------------------------------------------------------------------
+local Version = '1.0  for Lua5'
+local VersionDate  = '15aug2014';
+local Synopsis = [[
+  alsa_client -i ProKeys -s /home/soundfonts/MyGM.sf2
+  alsa_client -i ProKe,Keyst -n AlsaClient_2
+  perldoc alsa_client
+]]
+local Input = nil
+local Soundfonts = {}
+local ClientName = 'alsa_client'
+
+----------------------- arguments -----------------------
+local iarg=1; while arg[iarg] ~= nil do
+	if string.sub(arg[iarg],1,1) ~= "-" then break end
+	local first_letter = string.sub(arg[iarg],2,2)
+	if first_letter == 'v' then
+		local n = string.gsub(arg[0],"^.*/","",1)
+		print(n.." version "..Version.."  "..VersionDate)
+		os.exit(0)
+	elseif first_letter == 'i' then
+		iarg = iarg+1
+		Input = arg[iarg]
+	elseif first_letter == 'n' then
+		iarg = iarg+1
+		ClientName = arg[iarg]
+	elseif first_letter == 's' then
+		iarg = iarg+1
+		table.insert(Soundfonts, arg[iarg])
+	else
+		local n = string.gsub(arg[0],"^.*/","",1)
+		print(n.." version "..Version.."  "..VersionDate.."\n\n"..Synopsis)
+		os.exit(0)
+	end
+	iarg = iarg+1
+end
+if #Soundfonts == 0 then
+	Soundfonts[1] = '/home/soundfonts/Ultimate.sf2'
+end
+
+--------------- infrastructure from pjblib.lua --------------
+local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
+	if not s or string.len(s)<2 then return {s} end
+	if not pattern then return {s} end
+	if maxNb and maxNb <2 then return {s} end
+	local result = { }
+	local theStart = 1
+	local theSplitStart,theSplitEnd = string.find(s,pattern,theStart)
+	local nb = 1
+	while theSplitStart do
+		table.insert( result, string.sub(s,theStart,theSplitStart-1) )
+		theStart = theSplitEnd + 1
+		theSplitStart,theSplitEnd = string.find(s,pattern,theStart)
+		nb = nb + 1
+		if maxNb and nb >= maxNb then break end
+	end
+	table.insert( result, string.sub(s,theStart,-1) )
+	return result
+end
+-----------------------------------------------------------
+
+local FS = require 'fluidsynth'
+local ALSA = require 'midialsa'
+--require 'DataDumper'
+ALSA.client( ClientName, 1, 0, false )
+for i,val in ipairs(split(Input, ',')) do ALSA.connectfrom( 0, val ) end
+local settings = FS.new_settings()
+FS.set(settings, "audio.driver", "alsa")
+FS.set(settings, "audio.periods", 2)       -- min, for low latency
+FS.set(settings, "audio.period-size", 64)  -- min, for low latency
+local synth = FS.new_synth(settings)
+local audio_driver = FS.new_audio_driver(settings, synth)
+for i,val in ipairs(Soundfonts) do
+	local sf_id,msg = FS.sf_load(synth, val, 0)
+	if sf_id == nil then print(msg) end -- io.stderr:write(msg) end
+end
+while true do
+	local alsaevent = ALSA.input()
+	if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then break end
+	FS.play_event(synth, alsaevent)
+	--print(DataDumper(alsaevent))
+end
+FS.delete_audio_driver(audio_driver)
+FS.delete_synth(synth)
+FS.delete_settings(settings)
+
+--[=[
+
+=pod
+
+=head1 NAME
+
+alsa_client - functional
+
+=head1 SYNOPSIS
+
+  alsa_client -i ProKeys -s /home/soundfonts/MyGM.sf2
+  alsa_client -i ProKe,Keyst -n AlsaClient_2
+
+=head1 DESCRIPTION
+
+This script was written as an example ot illustrate
+the I<fluidsynth.lua> and I<midialsa.lua> modules,
+
+=head1 ARGUMENTS
+
+=over 3
+
+=item I<-i ProKeys,Keystation>
+
+Set the ALSA B<i>nput-client, to my I<ProKeys Sono 88> and my I<Keystation 49e>
+in this example. As in the example, multiple input-clients may be specified,
+separated by commas. The clients are identified by a case-significant
+start-of-string match, or by their ALSA client-numbers.
+By default, no client is connected to the input.
+
+=item I<-n alsaclient2>
+
+Set the ALSA client-B<n>ame, to alsaclient2 in this example.
+This is useful if you want to start up more than one I<alsa_client>,
+and then connect to them by name with aconnect.
+The default client-name is alsa_client. 
+
+=item I<-s /home/soundfonts/MyGM.sf2>
+
+Sets the B<s>oundfont which will be used.
+Multiple -s options may be given
+
+=item I<-v>
+
+Print the Version
+
+=back
+
+=head1 DOWNLOAD
+
+This at is available at
+
+=head1 AUTHOR
+
+Peter J Billam, http://www.pjb.com.au/comp/contact.html
+
+=head1 SEE ALSO
+
+ http://www.pjb.com.au/
+
+=cut
+
+]=]
