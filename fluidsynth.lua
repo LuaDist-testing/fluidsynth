@@ -7,17 +7,18 @@
 ---------------------------------------------------------------------
 
 local M = {} -- public interface
-M.Version     = '1.3' -- use fluid_get_sysconf, fluid_get_userconf, set k v
-M.VersionDate = '26aug2014'
+M.Version     = '1.4' -- eliminate Settings2numSynths and M.delete_settings
+M.VersionDate = '28aug2014'
 
 local ALSA = nil -- not needed if you never use play_event
 
-local Settings2numSynths   = {}
 local Synth2settings       = {}
 local AudioDriver2synth    = {}
 local Player2synth         = {}
 local Synth2fastRender     = {}
 local ConfigFileSettings   = {}
+local FLUID_FAILED         = -1  -- /usr/include/fluidsynth/misc.h
+local TmpName              = nil -- used to save the C-library's stderr
 
 -- http://fluidsynth.sourceforge.net/api/
 -- http://fluidsynth.sourceforge.net/api/index.html#Sequencer
@@ -142,45 +143,57 @@ local DefaultOption = {   -- the default synthesiser options
 	['fast.render']             = false, -- NON-STANDARD, not in library API
 }
 
------------------------- public functions ----------------------
+------------------------ private functions ----------------------
 
-local FLUID_FAILED = -1  -- /usr/include/fluidsynth/misc.h
-local TmpName = nil      -- 
-
-function M.default_settings()
-	return deepcopy(DefaultOption)
-end
-
-function M.new_settings()
+function new_settings()
 	TmpName = prv.redirect_stderr()
 	local settings = prv.new_fluid_settings()
-	if settings == FLUID_FAILED then return nil, 'new_fluid_settings failed'
-	else
-		Settings2numSynths[settings] = 0
-		return settings
-	end
+	if settings==FLUID_FAILED then return nil,'new_fluid_settings failed' end
+	return settings
 end
 
-function M.synth_error(synth)
+function new_audio_driver(settings, synth)
+	local audio_driver = prv.new_fluid_audio_driver(settings, synth)
+	if audio_driver == FLUID_FAILED then return nil, M.synth_error(synth) end
+	AudioDriver2synth[audio_driver] = synth
+	return audio_driver
+end
+
+function delete_audio_driver(audio_driver)
+	local rc = prv.delete_fluid_audio_driver(audio_driver)
+	if rc == FLUID_FAILED then return nil, 'delete_audio_driver failed' end
+	AudioDriver2synth[audio_driver] = nil
+	return true
+end
+
+function delete_player(player)
+	local rc = prv.delete_fluid_player(player)
+	if rc == FLUID_FAILED then return nil, 'delete_player failed' end
+	Player2synth[player] = nil
+	return true
+end
+
+local function is_noteoff(alsaevent)
+    if alsaevent[1] == ALSA.SND_SEQ_EVENT_NOTEOFF then return true end
+    if alsaevent[1] == ALSA.SND_SEQ_EVENT_NOTEON and alsaevent[8][3] == 0 then
+       return true
+    end
+    return false
+end
+
+------------------------ public functions ----------------------
+
+
+function M.synth_error(synth)   -- undocumented
  	-- Get a textual representation of the most recent synth error
 	return prv.fluid_synth_error(synth)
 end
 
-function M.error_file_name()   -- so the app can so.remove it
+function M.error_file_name()   -- so the app can remove it
 	return TmpName
 end
 
-function M.all_synth_errors(synth)
- 	-- slurp the temp file which stored the redirected stderr
-	if not TmpName then return '' end
-	local tmpfile = io.open(TmpName, 'r')
-	if not tmpfile then return '' end
-	local str = tmpfile:read('*a')
-	tmpfile:close()
-	return str
-end
-
-function M.set(settings, key, val)   -- there are also the _get routines...
+function set(settings, key, val)   -- there are also the _get routines...
 	if type(key) == 'nil' then
 		return nil, "fluidsynth: can't set the value for a nil key"
 	end
@@ -189,9 +202,6 @@ function M.set(settings, key, val)   -- there are also the _get routines...
 	end
 	if type(val) == 'nil' then
 		return nil, "fluidsynth: can't set the "..key.." key to nil"
-	end
-	if Settings2numSynths[settings] > 0.5 then
-		return nil, "fluidsynth: can't change settings when a synth is running"
 	end
 	if type(val) == type(DefaultOption[key]) then
 		if key=='synth.sample-rate' or key=='synth.gain' then
@@ -221,73 +231,172 @@ function M.set(settings, key, val)   -- there are also the _get routines...
 	return true
 end
 
+----------------------- basic functions ---------------------
+
+function M.read_config_file(filename)
+	if not filename then
+		userconf = prv.fluid_get_userconf()
+		sysconf  = prv.fluid_get_sysconf()
+		if    is_readable(userconf) then filename = userconf
+		elseif is_readable(sysconf) then filename = sysconf
+		else return nil, "can't find either "..userconf.." or "..sysconf
+		end
+	end
+	local soundfonts = {}
+	local config_file,msg = io.open(filename, 'r')
+	if not config_file then return nil,msg end   -- no config file
+	ConfigFileSettings = {}
+	while true do
+		local line = config_file:read('*l')
+		if not line then break end
+		local param,val = string.match(line, '^%s*set%s*(%S+)%s*(%S+)%s*$')
+		if param and val then
+			local default_val = DefaultOption[param]
+			if default_val then
+				if type(default_val) == 'number' then val = tonumber(val)
+				elseif type(default_val) == 'boolean' then
+					if val == 'true' or val == '1' then val = true
+					else val = false
+					end
+				end
+				ConfigFileSettings[param] = val
+			end
+		else
+			local sf_file = string.match(line, '^%s*load%s*(%S+)%s*$')
+			if sf_file and M.is_soundfont(sf_file) then
+				table.insert(soundfonts, sf_file)
+			end
+		end
+	end
+	config_file:close()
+	return soundfonts
+end
+
 function M.new_synth(arg)
 	-- "The settings parameter is used directly,
 	--  and should not be modified or freed independently."
+	if arg == nil then arg = { } end
 	local arg_type = type(arg)
 	if arg_type == 'table' then
-		-- invoking new_synth with a table of options should invoke
+		-- invoking new_synth with a table of settings invokes
 		--  new_settings, set, new_synth, new_audio_driver automatically.
-		local settings = M.new_settings()
+		local settings = new_settings()
 		for k,v in pairs(arg) do
-			if k ~= 'fast.render' then M.set(settings, k, v) end
+			if k ~= 'fast.render' then set(settings, k, v) end
 		end
 		for k,v in pairs(ConfigFileSettings) do
-			if k ~= 'fast.render' then M.set(settings, k, v) end
+			if k ~= 'fast.render' then set(settings, k, v) end
 		end
 		local synth = prv.new_fluid_synth(settings)
 		if synth == FLUID_FAILED then return nil, 'new_synth() failed' end
 		if arg['fast.render'] then   -- from src/fluidsynth.c
 			Synth2fastRender[synth] = true
-			M.set(settings, 'player.timing-source', 'sample')
-			M.set(settings, 'synth.parallel-render', 1)
+			set(settings, 'player.timing-source', 'sample')
+			set(settings, 'synth.parallel-render', 1)
 			-- fast_render should not need this, but currently does
 		end
-		Settings2numSynths[settings] = Settings2numSynths[settings] + 1
 		Synth2settings[synth] = settings
 		if not Synth2fastRender[synth] and arg['audio.driver'] ~= 'none' then
-			local audio_driver = M.new_audio_driver(settings, synth)
+			local audio_driver = new_audio_driver(settings, synth)
 		end
-		return synth
-	elseif arg_type == 'number' then   -- that's an integer cast of a C-pointer
-		local settings = arg
-		local synth = prv.new_fluid_synth(settings)
-		if synth == FLUID_FAILED then return nil, 'new_synth() failed' end
-		Settings2numSynths[settings] = Settings2numSynths[settings] + 1
-		Synth2settings[synth] = settings
-		return synth
+		return synth   -- that's an integer cast of a C-pointer
+--	elseif arg_type == 'number' then
+--		print ('DEPRECATED: new_synth(number) ; arg must be a table !!')
+--		local settings = arg
+--		local synth = prv.new_fluid_synth(settings)
+--		if synth == FLUID_FAILED then return nil, 'new_synth() failed' end
+--		Synth2settings[synth] = settings
+--		return synth
 	else
-		local msg = 'fluidsynth: new_synth arg must be table or integer, not '
+		local msg = 'fluidsynth: new_synth arg must be table, not '
 		return nil, msg..arg_type
 	end
 end
 
-function M.new_audio_driver(settings, synth)
-	local audio_driver = prv.new_fluid_audio_driver(settings, synth)
-	if audio_driver == FLUID_FAILED then return nil, M.synth_error(synth)
-	else
-		AudioDriver2synth[audio_driver] = synth
-		return audio_driver
-	end
-end
-
-function M.new_player(synth, midifilename)
-	local player = prv.new_fluid_player(synth)
-	if player == FLUID_FAILED then return nil, M.synth_error(synth)
-	else
-		Player2synth[player] = synth
-		if midifilename then
-			M.player_add(player, midifilename)
+function M.sf_load(synth, filenames )
+	if type(filenames) == 'string' then
+		local sf_id = prv.fluid_synth_sfload(synth, filename)
+		if sf_id == FLUID_FAILED then return nil, M.synth_error(synth)
+		else return { sf_id } end
+	elseif type(filenames) == 'table' then
+		local filename2sf_id = {}
+		for k,filename in ipairs(filenames) do
+			local sf_id = prv.fluid_synth_sfload(synth, filename)
+			if sf_id == FLUID_FAILED then return nil, M.synth_error(synth)
+			else filename2sf_id[filename] = sf_id
+			end
 		end
-		return player
+		return filename2sf_id
+	else
+		return nil, "fluidsynth: sf_load 2nd arg must be string or array"
 	end
 end
 
-function M.player_add(player, midifilename)
-	local rc = prv.fluid_player_add(player, midifilename)
-	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
+function M.sf_select(synth, channel, sf_id)   -- not documented :-(
+	local rc = prv.fluid_synth_sfont_select(synth, channel, sf_id)
+	if rc == FLUID_FAILED then
+		return nil, 'sf_select: '..M.synth_error(synth)
 	else return true end
 end
+
+function M.delete_synth(synth)
+	if synth == nil then   -- if synth==nil it deletes all synths
+		for k,v in pairs(Synth2settings) do
+			local rc, msg = M.delete_synth(k)
+			if not rc then return rc, msg end
+		end
+		os.remove(TmpName)
+		return true
+	end
+	-- search though Player2synth deleting any dependent players
+	for k,v in pairs(Player2synth) do
+		if v == synth then delete_player(k) end
+	end
+	-- search though AudioDriver2synth deleting any dependent audio_drivers
+	for k,v in pairs(AudioDriver2synth) do
+		if v == synth then delete_audio_driver(k) end
+	end
+	local rc = prv.delete_fluid_synth(synth)
+	if rc == FLUID_FAILED then
+		return nil, 'delete_synth: '..M.synth_error(synth)
+	end
+	local settings = Synth2settings[synth]
+	if settings then prv.delete_fluid_settings(settings) end
+	Synth2settings[synth]   = nil
+	Synth2fastRender[synth] = nil
+	if #Synth2settings < 0.5 then os.remove(TmpName) end
+	return true
+end
+
+--------------- functions for playing midi files ----------------
+
+function M.new_player(synth, midifilename)
+	if not midifilename then return nil,'new_player: midifilename was nil' end
+	if not M.is_midifile(midifilename) then
+		return nil,'new_player: '..midifilename..' was not a midi file'
+	end
+	local player = prv.new_fluid_player(synth)
+	if player == FLUID_FAILED then return nil, M.synth_error(synth) end
+	local rc = prv.fluid_player_add(player, midifilename)
+	if rc == FLUID_FAILED then
+		delete_player(player)
+		return nil, M.synth_error(synth)
+	end
+	Player2synth[player] = synth
+	return player
+end
+
+-- Superfluous... it seems impossible to add a second midifile to a player,
+-- even after the first midifile has finished playing. Just use M.new_player
+--function M.player_add(player, midifilename)
+--	if not midifilename then return nil,'player_add: midifilename was nil' end
+--	if not M.is_midifile(midifilename) then
+--		return nil,'player_add: '..midifilename..' was not a midi file'
+--	end
+--	local rc = prv.fluid_player_add(player, midifilename)
+--	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
+--	else return true end
+--end
 
 function M.player_play(player)
 	local rc = prv.fluid_player_play(player)
@@ -296,8 +405,8 @@ function M.player_play(player)
 end
 
 function M.player_join(player)
-	-- When should FastRender be invoked ?  It needs knowledge of
-	-- the future; it's not quite enough for a player to be running
+	-- When should FastRender be invoked ?  Well, it needs knowledge
+	-- of the future; it's not quite enough for a player to be running
 	-- and for the output to be a wav file, because real-time events
 	-- might get fed to the synth while the midi file is playing :-(
 	local synth    = Player2synth[player]
@@ -314,32 +423,24 @@ end
 function M.player_stop(player)
 	local rc = prv.fluid_player_stop(player)
 	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
-	else return true end
-end
-
-function M.sf_load(synth, filenames )
-	if type(filenames) == 'string' then
-		local sf_id = prv.fluid_synth_sfload(synth, filename)
-		if sf_id == FLUID_FAILED then return nil, M.synth_error(synth)
-		else return sf_id end
-	elseif type(filenames) == 'table' then
-		local sf_ids = {}
-		for k,filename in ipairs(filenames) do
-			local sf_id = prv.fluid_synth_sfload(synth, filename)
-			if sf_id == FLUID_FAILED then return nil, M.synth_error(synth)
-			else table.insert(sf_ids, sf_id)
-			end
-		end
-		return sf_ids
 	else
-		return nil, "fluidsynth: sf_load 2nd arg must be string or array"
+		-- player_play can not be reinvoked ! so I call delete_player
+		delete_player(player)
+		return true
 	end
 end
 
-function M.sf_select(synth, channel, sf_id)
-	local rc = prv.fluid_synth_sfont_select(synth, channel, sf_id)
-	if rc == FLUID_FAILED then
-		return nil, 'sf_select: '..M.synth_error(synth)
+----------------- functions for playing in real-time -------------
+
+function M.note_on(synth, channel, note, velocity)
+	local rc = prv.fluid_synth_noteon(synth, channel, note, velocity)
+	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
+	else return true end
+end
+
+function M.note_off(synth, channel, note)
+	local rc = prv.fluid_synth_noteoff(synth, channel, note)
+	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
 	else return true end
 end
 
@@ -351,18 +452,6 @@ end
 
 function M.control_change(synth, channel, cc, val)
 	local rc = prv.fluid_synth_cc(synth, channel, cc, val)
-	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
-	else return true end
-end
-
-function M.note_on(synth, channel, note, velocity)
-	local rc = prv.fluid_synth_noteon(synth, channel, note, velocity)
-	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
-	else return true end
-end
-
-function M.note_off(synth, channel, note)
-	local rc = prv.fluid_synth_noteoff(synth, channel, note)
 	if rc == FLUID_FAILED then return nil, M.synth_error(synth)
 	else return true end
 end
@@ -379,74 +468,6 @@ function M.pitch_bend_sens(synth, channel, val) -- val = semitones
 	else return true end
 end
 
-function M.delete_audio_driver(audio_driver)
-	local rc = prv.delete_fluid_audio_driver(audio_driver)
-	if rc == FLUID_FAILED then return nil, 'delete_audio_driver failed'
-	else
-		AudioDriver2synth[audio_driver] = nil
-		return true
-	end
-end
-
-function M.delete_player(player)
-	local rc = prv.delete_fluid_player(player)
-	if rc == FLUID_FAILED then return nil, 'delete_player failed'
-	else
-		Player2synth[player] = nil
-		return true
-	end
-end
-
-function M.delete_synth(synth)
-	-- 20140823 TODO: if synth==nil it should delete all synths ...
-	-- search though Player2synth deleting any dependent players
-	for k,v in pairs(Player2synth) do
-		if v == synth then M.delete_player(k) end
-	end
-	-- search though AudioDriver2synth deleting any dependent audio_drivers
-	for k,v in pairs(AudioDriver2synth) do
-		if v == synth then M.delete_audio_driver(k) end
-	end
-	local rc = prv.delete_fluid_synth(synth)
-	if rc == FLUID_FAILED then
-		return nil, 'delete_synth: '..M.synth_error(synth)
-	else
-		Synth2settings[synth]   = nil
-		Synth2fastRender[synth] = nil
-		return true
-	end
-end
-
-function M.delete_settings(settings)
-	-- search though Synth2settings deleting any dependent synths
-	for k,v in pairs(Synth2settings) do
-		if v == settings then M.delete_synth(k) end
-	end
-	local rc = prv.delete_fluid_settings(settings)
-	if rc == FLUID_FAILED then return nil, 'delete_settings failed'
-	else
-		Settings2numSynths[settings] = nil
-		return true
-	end
-end
-
-function M.is_soundfont(filename)
-	return prv.fluid_is_soundfont(filename)
-end
-
-function M.is_midifile(filename)
-	return prv.fluid_is_midifile(filename)
-end
-
---------- wrapper routines for integration with midiasla.lua and MIDI.lua
-
-local function is_noteoff(alsaevent)
-    if alsaevent[1] == ALSA.SND_SEQ_EVENT_NOTEOFF then return true end
-    if alsaevent[1] == ALSA.SND_SEQ_EVENT_NOTEON and alsaevent[8][3] == 0 then
-       return true
-    end
-    return false
-end
 function M.play_event(synth, event) -- no queuing yet; immediate output only
 	if #event == 8 then  -- its a midialsa event
 		-- see:  http://www.pjb.com.au/comp/lua/midialsa.html#input
@@ -488,109 +509,43 @@ function M.play_event(synth, event) -- no queuing yet; immediate output only
 	-- return ?
 end
 
-function M.read_config_file(filename)
-	if not filename then
-		userconf = prv.fluid_get_userconf()
-		sysconf  = prv.fluid_get_sysconf()
-		if    is_readable(userconf) then filename = userconf
-		elseif is_readable(sysconf) then filename = sysconf
-		else return nil, "can't find either "..userconf.." or "..sysconf
-		end
-	end
-	local soundfonts = {}
-	local config_file,msg = io.open(filename, 'r')
-	if not config_file then return nil,msg end   -- no config file
-	ConfigFileSettings = {}
-	while true do
-		local line = config_file:read('*l')
-		if not line then break end
-		local param,val = string.match(line, '^%s*set%s*(%S+)%s*(%S+)%s*$')
-		if param and val then
-			local default_val = DefaultOption[param]
-			if default_val then
-				if type(default_val) == 'number' then val = tonumber(val)
-				elseif type(default_val) == 'boolean' then
-					if val == 'true' or val == '1' then val = true
-					else val = false
-					end
-				end
-				ConfigFileSettings[param] = val
-			end
-		else
-			local sf_file = string.match(line, '^%s*load%s*(%S+)%s*$')
-			if sf_file and M.is_soundfont(sf_file) then
-				table.insert(soundfonts, sf_file)
-			end
-		end
-	end
-	config_file:close()
-	return soundfonts
+------------------- functions returning state -----------------
+
+function M.is_soundfont(filename)
+	return prv.fluid_is_soundfont(filename)
 end
 
-function M.get_sysconf()
+function M.is_midifile(filename)
+	return prv.fluid_is_midifile(filename)
+end
+
+function M.default_settings()
+	return deepcopy(DefaultOption)
+end
+
+function M.all_synth_errors(synth)
+ 	-- slurp the temp file which stored the redirected stderr
+	if not TmpName then return '' end
+	local tmpfile = io.open(TmpName, 'r')
+	if not tmpfile then return '' end
+	local str = tmpfile:read('*a')
+	tmpfile:close()
+	return str
+end
+
+function M.get_sysconf()   -- undocumented
 	return prv.fluid_get_sysconf()
 end
-function M.get_userconf()
+
+function M.get_userconf()   -- undocumented
 	return prv.fluid_get_userconf()
 end
+
+---------------------------------------------------------------
 
 return M
 
 --[[
-
-=head1 LOW-LEVEL FUNCTIONS YOU NO LONGER NEED
-
-=head3 settings = FS.new_settings()
-
-This corresponds to the library routine I<new_fluid_settings()>
-The return value is a C pointer, so if you change it the library will crash.
-
-In  http://fluidsynth.sourceforge.net/api/
-it says "The settings parameter is used directly,
-and should not be modified or freed independently."
-This means that the synth keeps a reference to the settings object.
-The consequence is that after invoking I<new_synth>
-you are not allowed to touch the settings object,
-except that you're responsible to free it after deleting the synth.
-
-=head3 FS.set(settings, "audio.driver", "alsa")
-
-This in itself is a wrapper, invoking the library routines
-I<fluid_settings_setstr()>,
-I<fluid_settings_setnum()>, and
-I<fluid_settings_setint()>.
-The module knows which type each parameter should be,
-and calls the correct routine automatically.
-
-After invoking I<new_synth>
-you should not touch its settings object.
-
-=head3 synth = FS.new_synth(settings)
-
-This corresponds to the library routine I<new_fluid_synth()>
-The return value is a C pointer, so if you mess with it the library will crash.
-
-=head3 audio_driver = FS.new_audio_driver(settings, synth)
-
-This corresponds to the library routine I<new_fluid_audio_driver()>
-The return value is a C pointer.
-
-=head3 FS.player_add(midiplayer, midifilename)
-
-This corresponds to the library routine I<fluid_player_add()>
-
-=head3 FS.delete_settings(settings)
-
-This corresponds to the library routine I<delete_fluid_settings()>
-
-=head3 FS.delete_audio_driver(audio_driver)
-
-This corresponds to the library routine I<delete_fluid_audio_driver()>
-
-=head3 FS.delete_player(midiplayer)
-
-This corresponds to the library routine I<delete_fluid_player()>
-
 
 =pod
 
@@ -601,15 +556,15 @@ C<fluidsynth> - a Lua interface to the I<fluidsynth> library
 =head1 SYNOPSIS
 
  local FS = require 'fluidsynth'   -- convert midi to wav
+ local soundfonts = FS.read_config_file()  -- default ~/.fluidsynth
  local synth1   = FS.new_synth(
    ['synth.gain']      = 0.4,      -- be careful...
    ['audio.driver']    = 'file',
    ['audio.file.name'] = 'foo.wav',
-   ['fast.render']     = true,     -- a homebrew parameter
+   ['fast.render']     = true,     -- not part of the C-library API
  } )
- local my_gm,msg = FS.sf_load(synth1, "/home/soundfonts/MyGM.sf2")
- local player1  = FS.new_player(synth1,'foo.mid')
- -- the 2nd arg automatically invokes player_add(synth1,'foo.mid')
+ local sf2id = FS.sf_load(synth1, soundfonts)
+ local player1  = FS.new_player(synth1, 'foo.mid')
  assert(FS.player_play(player1))
  assert(FS.player_join(player1))   -- wait for foo.mid to finish
  os.execute('sleep 1')             -- don't chop final reverb
@@ -617,16 +572,15 @@ C<fluidsynth> - a Lua interface to the I<fluidsynth> library
 
  local FS   = require 'fluidsynth' -- an alsa-client soundfont-synth
  local ALSA = require 'midialsa'
- local Input     = 14
- local Soundfont = '/home/soundfonts/MyGM.sf2'
+ local soundfonts = FS.read_config_file('/unusual/config_file')
  ALSA.client( 'fluidsynth-alsa-client', 1, 0, false )
- ALSA.connectfrom( 0, Input )
+ ALSA.connectfrom( 0, 'ProKeys' )
  local synth2 = FS.new_synth( {
    "audio.driver"      = "alsa",
    "audio.periods"     = 2,   -- min, for low latency
    "audio.period-size" = 64,  -- min, for low latency
  } )
- local sf_id = FS.sf_load(synth2, Soundfont)
+ local sf2id = FS.sf_load(synth2, soundfonts)
  -- you will need to set a patch before any output can be generated!
  while true do
    local alsaevent = ALSA.input()
@@ -640,8 +594,7 @@ C<fluidsynth> - a Lua interface to the I<fluidsynth> library
 This Lua module offers a simplified calling interface
 to the Fluidsynth Library.
 
-It is in its early versions,
-and the API is expected to change and evolve.
+It is in its early versions, and the API is expected to evolve.
 
 It is a relatively thick wrapper.
 Various higher-level FUNCTIONS are introduced,
@@ -650,7 +603,7 @@ so the module can be used for example within a I<Curses> app,
 and the return codes on failure have adopted the I<nil,errormessage>
 convention of Lua so they can be used for example with I<assert()>.
 
-=head1 HIGH-LEVEL FUNCTIONS
+=head1 FUNCTIONS
 
 These functions wrap the I<fluidsynth> library functions
 in a way that retains functionality,
@@ -697,7 +650,7 @@ stack which can supply the requested patch.
 In the above example, I<my_gm.sf2> is a good general-midi soundfont,
 except that I<my_piano.sf2> offers a much nicer piano sound.
 
-It returns an array of soundfont_ids, which are stack indexes
+It returns a table of fsoundfont_ids, which are stack indexes
 starting from 1.
 These soundfont_ids are only needed if you want to invoke
 I<fluid_synth_sfunload()> or I<fluid_synth_sfreload()>,
@@ -718,8 +671,8 @@ I<player_join(player)> and I<player_stop(player)> by hand.
 =head3 FS.delete_synth(synth)
 
 This does all the administrivia necessary to delete the I<synth>,
-invoking I<delete_player>, I<delete_audio_driver>,
-I<delete_synth> and I<delete_settings> as necessary.
+invoking I<delete_fluid_player>, I<delete_fluid_audio_driver>,
+I<delete_fluid_synth> and I<delete_fluid_settings> as necessary.
 
 When called with no argument it deletes all running I<synths>.
 
@@ -848,7 +801,8 @@ or on Centos you may need:
 
 =head1 CHANGES
 
- 20140827 1.3 use fluid_get_sysconf, fluid_get_userconf,  set k v
+ 20140828 1.4 eliminate Settings2numSynths and M.delete_settings
+ 20140827 1.3 use fluid_get_sysconf, fluid_get_userconf, config file 'set k v'
  20140826 1.2 ~/.config/fluidsynth config file using  k = v
  20140825 1.1 new calling-interface at much higher level
  20140818 1.0 first working version 

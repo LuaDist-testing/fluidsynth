@@ -12,7 +12,7 @@ local Synopsis = [[
 program_name [options] [filenames]
 ]]
 local Midifile = 'folkdance.mid'
-local Soundfont = 'Chaos4m.sf2'
+require 'DataDumper'
 
 local iarg=1; while arg[iarg] ~= nil do
 	if string.sub(arg[iarg],1,1) ~= "-" then break end
@@ -38,42 +38,23 @@ local sysconf = FS.get_sysconf()
 print ('get_sysconf returns', sysconf)
 local parameter2default = FS.default_settings()
 print("parameter2default['synth.midi-bank-select'] =",parameter2default['synth.midi-bank-select'])
-local settings,msg = FS.new_settings()
-print('    settings =',settings)
-if not settings then print('settings was nil:',settings,msg) end
-print("about to call set('synth.polyphony')")
-local rc,msg = FS.set(settings, "synth.polyphony", 128)
-if not rc then print(rc, msg) end
-print("about to call set('synth.gain')")
-rc,msg = FS.set(settings, "synth.gain", 0.8)
-if not rc then print(msg) end
-print("about to call set('audio.driver')")
-rc,msg = FS.set(settings, "audio.driver", "alsa")
-if not rc then print(msg) end
--- assert(FS.set(settings, "audio.file.name", "/tmp/t.wav"))
--- assert(FS.set(settings, "audio.file.type", "wav"))
-print("about to set an unrecognised parameter")
-rc,msg = FS.set(settings, "Sprogthwooklificatig", "why")
-if not rc then print(msg) end
+print("about to call read_config_file")
+local soundfonts,msg = FS.read_config_file()
+print(DataDumper(soundfonts))
 print("about to call new_synth")
-local synth,msg = FS.new_synth(settings)
+local synth,msg = FS.new_synth()
 if synth == nil then print(msg) end
 -- if audio.driver==alsa, could read /proc/asound/devices to help
 -- guess best choice for audio.alsa.device (such as: "hw:0", "plughw:1")
-print("about to call new_audio_driver")
-local audio_driver,msg = FS.new_audio_driver(settings, synth)
-if audio_driver == nil then print(msg) end
 print("about to call sf_load")
-local sf_id,msg = FS.sf_load(synth, Soundfont, 0)
-if sf_id == nil then print(msg) end
+local sf_ids,msg = FS.sf_load(synth, soundfonts)
+if sf_ids == nil then print(msg) end
+print('sf_ids =',DataDumper(sf_ids))
 print("about to call sf_load on non-existent file")
-sf_id,msg = FS.sf_load(synth, "/wherever/Zsfuospw9erk.sf2", 0)
-if sf_id == nil then print(msg) end
+sf_ids,msg = FS.sf_load(synth, "/wherever/Zsfuospw9erk.sf2", 0)
+print('sf_ids =',DataDumper(sf_ids))
 
 local channel = 0
-print("about to call sf_select")
-rc,msg = FS.sf_select(synth, channel, sf_id)
-if not rc then print(msg) end
 print("about to call patch_change")
 rc,msg = FS.patch_change(synth, channel, 87)
 if not rc then print(msg) end
@@ -111,18 +92,13 @@ rc,msg = FS.note_off(synth, channel, 60)         -- channel, note
 if not rc then print(msg) end
 os.execute('sleep 1')       -- should schedule, or use luaposix...
 
-print("about to call delete_audio_driver")
-rc,msg = FS.delete_audio_driver(audio_driver)
 if not rc then print(msg) end
-print("about to call delete_synth")
-rc,msg = FS.delete_synth(synth)
-if not rc then print(msg) end
-print("about to call delete_settings")
-rc,msg = FS.delete_settings(settings)
+print("about to call delete_synth(nil)")
+rc,msg = FS.delete_synth(nil)
 if not rc then print(msg) end
 
-rc = FS.is_soundfont(Soundfont)
-print("is_soundfont('"..Soundfont.."') returned", rc)
+rc = FS.is_soundfont(soundfonts[1])
+print("is_soundfont('"..soundfonts[1].."') returned", rc)
 rc = FS.is_soundfont('/where/NO.sf2')
 print("is_soundfont('/where/NO.sf2') returned", rc)
 rc = FS.is_soundfont('/etc/passwd')

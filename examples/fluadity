@@ -6,10 +6,8 @@
 --  This script is free software; you can redistribute it and/or   --
 --         modify it under the same terms as Lua5 itself.          --
 ---------------------------------------------------------------------
-local Version = '1.1  for Lua5'
-local VersionDate  = '25aug2014';
--- fluadity -c              # a curses-based alsa client, o/p to soundcard
--- fluadity -c -i ProKeys        # likewise, and connects from the ProKeys
+local Version = '1.2  for Lua5'
+local VersionDate  = '29aug2014';
 local Synopsis = [[
  fluadity                      # a simple alsa-client , o/p to soundcard
  fluadity -i ProKeys           # likewise, and connects from the ProKeys
@@ -21,7 +19,8 @@ local Synopsis = [[
 ]]
 
 local FS = require 'fluidsynth'
---require 'DataDumper'
+require 'DataDumper'
+
 local Curses     = true
 local InputPort  = nil
 local Soundfonts = {}
@@ -56,22 +55,25 @@ local iarg=1; while arg[iarg] ~= nil do
 	iarg = iarg+1
 end
 
-local InputFile = arg[iarg]
+local InputFile  = arg[iarg]
 local OutputFile = arg[iarg+1]
+local TmpFile    = nil
 if InputFile == '-' then   -- slurp stdin
     math.randomseed(os.time())
     local r = string.format('%06d', math.random(999999))
-    local tmpfile = '/tmp/midi2wav'..r..'.mid'
-    local tmp = assert(io.open(tmpfile,'wb'))
+    TmpFile = '/tmp/fluadity_stdin_'..r..'.mid'
+    local tmp = assert(io.open(TmpFile,'wb'))
     tmp:write(io.read('*a'))
     tmp:close()
-    -- os.execute('ls -l '..tmpfile)
-    InputFile = tmpfile
+    InputFile = TmpFile
+	-- if, AND ONLY IF, the InputFile is a tmpfile, then in needs to be
+	-- removed on exit ...
 end
 
 if #Soundfonts == 0 then
 	Soundfonts = assert(FS.read_config_file(ConfigFile))
 end
+print(DataDumper(Soundfonts))
 
 --------------- infrastructure from pjblib.lua --------------
 local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
@@ -117,10 +119,6 @@ function quiet_client()
 	FS.delete_synth(synth)
 end
 
-function curses_client()   -- see /home/pbin/midithru
-	-- about 600 lines of code, unfortunately :-(  at least its already in Lua
-end
-
 function play_midi()
 	local synth = FS.new_synth( {} )
 	local sf_id_s,msg = assert(FS.sf_load(synth, Soundfonts))
@@ -154,16 +152,13 @@ end
 
 if InputFile and OutputFile then midi2wav() -- midi to wav
 elseif InputFile then play_midi()           -- play midi
-elseif Curses then quiet_client()   -- real-time client w curses display
 else               quiet_client()
 end
 os.remove(FS.error_file_name())
+if TmpFile then os.remove(TmpFile) end
 os.exit(0)
 
 --[=[
-
- fluadity -c             # a curses-based alsa client, o/p to soundcard
- fluadity -c -i ProKeys       # likewise, and connects from the ProKeys
 
 =pod
 
