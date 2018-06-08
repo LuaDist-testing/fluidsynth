@@ -45,11 +45,13 @@ local iarg=1; while arg[iarg] ~= nil do    -- options
 end
 while arg[iarg] ~= nil do    -- input-files
 	if arg[iarg] == '-' then   -- slurp stdin
-    	local tmpfile = '/tmp/midi2wav.'..os.date('%d%H%M%S')..'.mid'
+		math.randomseed(os.time())
+		local r = string.format('%06d', math.random(999999))
+    	local tmpfile = '/tmp/midi2wav'..r..'.mid'
     	local tmp = assert(io.open(tmpfile,'wb'))
-    	for block in io.stdin:lines(512) do tmp:write(block) end
+		tmp:write(io.read('*a'))
     	tmp:close()
-    	os.execute('ls -l '..tmpfile)
+    	-- os.execute('ls -l '..tmpfile)
     	InputFile = tmpfile
 		iarg = iarg+1
 	end
@@ -57,37 +59,35 @@ while arg[iarg] ~= nil do    -- input-files
 	InputFile = arg[iarg]
 	iarg = iarg+1
 end
-OutputFile = arg[iarg]
+if arg[iarg] ~= nil then OutputFile = arg[iarg] end
 
-print(' InputFile ='..InputFile)
-print('OutputFile ='..OutputFile)
+-- print(' InputFile ='..InputFile)
+-- print('OutputFile ='..OutputFile)
 
 if #Soundfonts == 0 then
-	Soundfonts[1] = '/home/soundfonts/Ultimate.sf2'
+	Soundfonts[1] = 'Chaos4m.sf2'
 end
+
+-- os.exit()
 
 -----------------------------------------------------------
 
-local settings = FS.new_settings()
-FS.set(settings, "audio.driver", "file")
-FS.set(settings, "audio.file.type", "wav")
-FS.set(settings, "audio.file.name", OutputFile)
-local synth = FS.new_synth(settings)
-local audio_driver = FS.new_audio_driver(settings, synth)
+local synth = FS.new_synth( {
+	['audio.driver']    = "file",
+	['audio.file.type'] = "wav",
+	['audio.file.name'] = OutputFile,
+	['fast.render']     = true,
+} )
 for i,val in ipairs(Soundfonts) do
 	local sf_id,msg = FS.sf_load(synth, val, 0)
 	if sf_id == nil then print(msg) end
 end
-local player = assert(FS.new_player(synth))
-assert(FS.player_add(player, InputFile))
+local player = assert(FS.new_player(synth, InputFile))
 assert(FS.player_play(player))
 assert(FS.player_join(player))
 os.execute('sleep 1')
 assert(FS.player_stop(player))
-FS.delete_audio_driver(audio_driver)
-FS.delete_player(player)
 FS.delete_synth(synth)
-FS.delete_settings(settings)
 
 --[=[
 

@@ -71,15 +71,15 @@ local ALSA = require 'midialsa'
 --require 'DataDumper'
 ALSA.client( ClientName, 1, 0, false )
 for i,val in ipairs(split(Input, ',')) do ALSA.connectfrom( 0, val ) end
-local settings = FS.new_settings()
-FS.set(settings, "audio.driver", "alsa")
-FS.set(settings, "audio.periods", 2)       -- min, for low latency
-FS.set(settings, "audio.period-size", 64)  -- min, for low latency
-local synth = FS.new_synth(settings)
-local audio_driver = FS.new_audio_driver(settings, synth)
+local synth = FS.new_synth( {
+	['audio.driver']        = 'alsa',
+	['audio.periods']       = 2,   -- min, for low latency
+	['audio.period-size']   = 64,  -- min, for low latency
+	['audio.realtime-prio'] = 85,  -- big, lor low latency
+} )
 for i,val in ipairs(Soundfonts) do
 	local sf_id,msg = FS.sf_load(synth, val, 0)
-	if sf_id == nil then print(msg) end -- io.stderr:write(msg) end
+	if sf_id == nil then print(msg) end
 end
 while true do
 	local alsaevent = ALSA.input()
@@ -87,9 +87,7 @@ while true do
 	FS.play_event(synth, alsaevent)
 	--print(DataDumper(alsaevent))
 end
-FS.delete_audio_driver(audio_driver)
 FS.delete_synth(synth)
-FS.delete_settings(settings)
 
 --[=[
 

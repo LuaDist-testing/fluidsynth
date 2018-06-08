@@ -1,4 +1,4 @@
-#!/usr/bin/lua
+#!/usr/local/bin/lua
 ---------------------------------------------------------------------
 --     This Lua5 script is Copyright (c) 2014, Peter J Billam      --
 --                       www.pjb.com.au                            --
@@ -8,16 +8,24 @@
 ---------------------------------------------------------------------
 local Version = '1.0  for Lua5'
 local VersionDate  = '17aug2014';
+-- fluadity -c              # a curses-based alsa client, o/p to soundcard
+-- fluadity -c -i ProKeys        # likewise, and connects from the ProKeys
 local Synopsis = [[
-  fluadity                 # a curses-based alsa client, o/p to soundcard
-  fluadity -i ProKeys           # likewise, and connects from the ProKeys
-  fluadity -q    # a silent alsa-client for daemonising, o/p to soundcard
-  fluadity -q -i ProKeys        # likewise, and connects from the ProKeys
-  fluadity /tmp/t.mid /tmp/t.wav  # converts midi to wav
-  fluadity /tmp/t.mid             # like aplaymidi -p TiMidity /tmp/t.mid
-  fluadity - /tmp/t.wav           # like timidity -Ow -o /tmp/t.waw -
-  fluadity -                      # like timidity -     
+ fluadity                      # a simple alsa-client , o/p to soundcard
+ fluadity -i ProKeys           # likewise, and connects from the ProKeys
+ fluadity /tmp/t.mid /tmp/t.wav  # converts midi to wav
+ fluadity /tmp/t.mid             # like aplaymidi -p TiMidity /tmp/t.mid
+ fluadity - /tmp/t.wav           # like timidity -Ow -o /tmp/t.wav -
+ fluadity -                      # like timidity -     
+ perldoc fluadity                # read the manual :-)
 ]]
+
+local FS = require 'fluidsynth'
+local Curses     = true
+local InputPort  = nil
+local Soundfonts = {}
+local ClientName = 'fluadity'
+local ConfigFile = nil   -- use the default unless there's a -f option
 local iarg=1; while arg[iarg] ~= nil do
 	if not string.find(arg[iarg], '^-[a-z]') then break end
 	local first_letter = string.sub(arg[iarg],2,2)
@@ -26,7 +34,19 @@ local iarg=1; while arg[iarg] ~= nil do
 		print(n.." version "..Version.."  "..VersionDate)
 		os.exit(0)
 	elseif first_letter == 'c' then
-		whatever()
+		Curses = true
+	elseif first_letter == 'f' then
+		iarg = iarg+1
+		ConfigFile = arg[iarg]
+	elseif first_letter == 'i' then
+		iarg = iarg+1
+		InputPort = arg[iarg]
+	elseif first_letter == 'n' then
+		iarg = iarg+1
+		ClientName = arg[iarg]
+	elseif first_letter == 's' then
+		iarg = iarg+1
+		table.insert(Soundfonts, arg[iarg])
 	else
 		local n = string.gsub(arg[0],"^.*/","",1)
 		print(n.." version "..Version.."  "..VersionDate.."\n\n"..Synopsis)
@@ -35,30 +55,145 @@ local iarg=1; while arg[iarg] ~= nil do
 	iarg = iarg+1
 end
 
+local InputFile = arg[iarg]
+local OutputFile = arg[iarg+1]
+if InputFile == '-' then   -- slurp stdin
+    math.randomseed(os.time())
+    local r = string.format('%06d', math.random(999999))
+    local tmpfile = '/tmp/midi2wav'..r..'.mid'
+    local tmp = assert(io.open(tmpfile,'wb'))
+    tmp:write(io.read('*a'))
+    tmp:close()
+    -- os.execute('ls -l '..tmpfile)
+    InputFile = tmpfile
+end
+
+if #Soundfonts == 0 then
+	Soundfonts = assert(FS.read_config_file(ConfigFile))
+end
+
+--------------- infrastructure from pjblib.lua --------------
+local function split(s, pattern, maxNb) -- http://lua-users.org/wiki/SplitJoin
+	if not s or string.len(s)<2 then return {s} end
+	if not pattern then return {s} end
+	if maxNb and maxNb <2 then return {s} end
+	local result = { }
+	local theStart = 1
+	local theSplitStart,theSplitEnd = string.find(s,pattern,theStart)
+	local nb = 1
+	while theSplitStart do
+		table.insert( result, string.sub(s,theStart,theSplitStart-1) )
+		theStart = theSplitEnd + 1
+		theSplitStart,theSplitEnd = string.find(s,pattern,theStart)
+		nb = nb + 1
+		if maxNb and nb >= maxNb then break end
+	end
+	table.insert( result, string.sub(s,theStart,-1) )
+	return result
+end
+-----------------------------------------------------------
+
+--require 'DataDumper'
+
+----------------- the various major function-groups --------------
+
+function quiet_client()
+	local ALSA = require 'midialsa'
+	ALSA.client( ClientName, 1, 0, false )
+	for i,val in ipairs(split(InputPort,',')) do ALSA.connectfrom(0,val) end
+	local synth = FS.new_synth( {
+		['audio.periods']       = 2,   -- min, for low latency
+		['audio.period-size']   = 64,  -- min, for low latency
+		['audio.realtime-prio'] = 85,  -- big, lor low latency
+	} )
+	for i,val in ipairs(Soundfonts) do
+		local sf_id,msg = FS.sf_load(synth, val, 0)
+		if sf_id == nil then print(msg) end
+	end
+	while true do
+		local alsaevent = ALSA.input()
+		if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then break end
+		FS.play_event(synth, alsaevent)   --print(DataDumper(alsaevent))
+	end
+	FS.delete_synth(synth)
+end
+
+function curses_client()   -- see /home/pbin/midithru
+	-- about 600 lines of code, unfortunately :-(  at least its already in Lua
+end
+
+function play_midi()
+	local synth = FS.new_synth( {
+	} )
+	for i,val in ipairs(Soundfonts) do
+		local sf_id,msg = FS.sf_load(synth, val, 0)
+		if sf_id == nil then print(msg) end
+	end
+	local player = assert(FS.new_player(synth, InputFile))
+	assert(FS.player_play(player))
+	assert(FS.player_join(player))
+	os.execute('sleep 1')
+	assert(FS.player_stop(player))
+	FS.delete_synth(synth)
+end
+
+function midi2wav()
+	local synth = FS.new_synth( {
+		['audio.driver']    = "file",
+		['audio.file.type'] = "wav",
+		['audio.file.name'] = OutputFile,
+		['fast.render']     = true,
+	} )
+	for i,val in ipairs(Soundfonts) do
+		local sf_id,msg = FS.sf_load(synth, val, 0)
+print('sf_id =', sf_id)
+		if sf_id == nil then print(msg) end
+	end
+	local player = assert(FS.new_player(synth, InputFile))
+	assert(FS.player_play(player))
+	assert(FS.player_join(player))
+	os.execute('sleep 1')
+	assert(FS.player_stop(player))
+	FS.delete_synth(synth)
+end
+
+------------------------------------------------------------------
+
+if InputFile and OutputFile then midi2wav() -- midi to wav
+elseif InputFile then play_midi()           -- play midi
+elseif Curses then quiet_client()   -- real-time client w curses display
+else               quiet_client()
+end
+os.remove(FS.error_file_name())
+os.exit(0)
+
 --[=[
+
+ fluadity -c             # a curses-based alsa client, o/p to soundcard
+ fluadity -c -i ProKeys       # likewise, and connects from the ProKeys
 
 =pod
 
 =head1 NAME
 
-miditurtle - Reading, writing and manipulating MIDI data
+B<fluadity> - Synthesiser and midi-to-wav converter using the Fluidsynth library
 
 =head1 SYNOPSIS
 
-  fluadity                 # a curses-based alsa client, o/p to soundcard
-  fluadity -i ProKeys           # likewise, and connects from the ProKeys
-  fluadity -q    # a silent alsa-client for daemonising, o/p to soundcard
-  fluadity -q -i ProKeys        # likewise, and connects from the ProKeys
-  fluadity /tmp/t.mid /tmp/t.wav  # converts midi to wav
-  fluadity /tmp/t.mid             # like aplaymidi -p TiMidity /tmp/t.mid
-  fluadity - /tmp/t.wav           # like timidity -Ow -o /tmp/t.waw -
-  fluadity -                      # like timidity -     
-  ~> cat ~/.fluadity/config
-  audio:
-    alsa
-  soundfonts:
-    /home/soundfonts/MyGM.sf2
-    /home/soundfonts/ReallyGoodPiano.sf2
+ fluadity &               # a non-verbose alsa-client, o/p to soundcard
+ fluadity -i ProKeys &        # likewise, and connects from the ProKeys
+ fluadity -s ./Foo.sf2 -i Pro & # likewise, and loads Foo.sf2 soundfont
+ fluadity /tmp/t.mid /tmp/t.wav # converts midi to wav
+ fluadity /tmp/t.mid            # like aplaymidi -p TiMidity /tmp/t.mid
+ fluadity - /tmp/t.wav          # like timidity -Ow -o /tmp/t.wav -
+ fluadity -                     # like timidity -     
+ perldoc fluadity               # read the manual :-)
+
+ ~> cat ~/.config/fluidsynth
+ audio.driver = alsa
+ load /home/soundfonts/MyGM.sf2
+ load /home/soundfonts/ReallyGoodPiano.sf2
+ ~>
 
 =head1 DESCRIPTION
 
@@ -71,41 +206,82 @@ but 'fluidity' is already a one-person Nintendo video game, released 6dec2010.
 
 So the name I<fluadity> was chosen,
 since it also contains I<Lua> which is the language it uses,
-and since it has no previous meaning,
-is easy to pronounce, and is highly searchable.
+and has no previous meaning, is easy to pronounce, and is highly searchable.
 
-It is intended to have a much lower latency the I<timidity>,
+It is intended to have a much lower latency than I<timidity>,
 so as to be good for real-time work.
 Its command-line is leaner and easier to remember than
 I<timidity>'s (which is however already pretty good).
-
-But: it can only use SoundFonts, and so is less configurable than I<timidity>;
-and when rendering midi to wav it runs in real-time,
-whereas I<timidity> runs flat-out and finishes much faster.
-
-It uses the I<midialsa> and I<fluidity> and I<MIDI> Lua modules,
-which in turn need the I<alsa> and I<fluidsynth> C-libraries
-and associated header-files.
+But: it can only use SoundFonts, and so is less configurable than I<timidity>.
 
 It has very similar functionality to the I<fluidsynth> command,
 but is even easier to use, slightly more restricted in functionality,
-and features a convenient configuration file I<~/fluadity/config>
+and features a convenient default configuration file I<~/.config/fluidsynth>
 
+It uses the I<midialsa> and I<fluidity> Lua modules,
+which in turn need the I<alsa> and I<fluidsynth> C-libraries
+and associated header-files.
 Because it uses the I<midialsa> library, it feels most at home on I<Linux>
 
-=head1 ARGUMENTS
+=head1 OPTIONS
 
 =over 3
 
+=item I<-f /wherever/my_fluidsynth_config>
+
+Reads the configuration from the given file.
+The default configuration file is
+
+ $HOME/.config/fluidsynth
+
+which is in a format that can also be used as a config
+file for the I<fluidsynth> executable, eg:
+
+ fluidsynth -f ~/.config/fluidsynth
+
+but I<fluadity> only recognises two types of command,
+the first of which is ignored by I<fluidsynth>.
+This is the format:
+
+ audio.driver = alsa
+ load /home/soundfonts/MyGM.sf2
+ load /home/soundfonts/ReallyGoodPiano.sf2
+
+=item I<-i ProKeys,Keystation>
+
+Starts an I<ALSA>-midi client, which it connects from
+(in this example) the I<ProKeys> and I<Keystation> midi-keyboards.
+
+=item I<-s /home/soundfonts/Wierd.sf2 -s Gulp.sf2>
+
+Overriding any config file, this loads the soundfonts from the command-line.
+Multiple B<-s> options may be given.
+
 =item I<-v>
 
-Print the Version
+Prints the Version
 
 =back
 
 =head1 DOWNLOAD
 
-This at is available at
+I<Fluadity> is available at:
+
+ http://www.pjb.com.au/midi/free/fluadity
+
+Just move it into your I<PATH>, make it executable,
+and if necessary edit the first line to match where I<Lua> is
+installed on your system.
+
+You will also need the I<fluidsynth> and I<midialsa> modules:
+
+ luarocks install --server=http://rocks.moonscript.org fluidsynth
+ luarocks install --server=http://rocks.moonscript.org midialsa
+
+See:
+
+ http://www.pjb.com.au/comp/lua/fluidsynth.html#download
+ http://www.pjb.com.au/comp/lua/midialsa.html#download
 
 =head1 AUTHOR
 
@@ -114,6 +290,11 @@ Peter J Billam, http://www.pjb.com.au/comp/contact.html
 =head1 SEE ALSO
 
  http://www.pjb.com.au/
+ http://www.pjb.com.au/midi/index.html
+ http://www.pjb.com.au/midi/fluadity.html
+ http://www.pjb.com.au/comp/lua/fluidsynth.html
+ http://www.pjb.com.au/comp/lua/midialsa.html
+ http://rocks.moonscript.org/modules/peterbillam
 
 =cut
 

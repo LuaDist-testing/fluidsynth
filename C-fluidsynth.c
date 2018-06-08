@@ -27,7 +27,6 @@
 
 /* fprintf("C: FLUID_OK = %d\n",FLUID_OK); should be defined in misc.h, no? */
 
-int save_stderr = -1;
 /* FILE * tmpfile (void) declared in stdio.h.
    char * tmpnam (char *result)
     Warning: Between the time the pathname is constructed and the file is
@@ -39,7 +38,8 @@ int save_stderr = -1;
     But how do I use that in a freopen context ?
     not: dup2(fileno(stderr), fileno(tmpfile()));  :-(
 */
-void redirect_stderr() {
+int save_stderr = -1;
+static int c_redirect_stderr(lua_State *L) {
 	save_stderr = dup(fileno(stderr));
 	char* tmp_file = tmpnam(NULL);
 	freopen(tmp_file, "w", stderr);
@@ -47,15 +47,19 @@ void redirect_stderr() {
 	   const char *mode, FILE *stream) associates a new filename with the
 	   given open stream and same time closing the old file in stream.
 	*/
+   	lua_pushstring(L, tmp_file);
+	return 1;
 }
-void restore_stderr() {
+static int c_restore_stderr() {
 	dup2(save_stderr, fileno(stderr));
 	close(save_stderr);
+	save_stderr = -1;
+	return 0;
 }
 
 static int c_new_fluid_settings(lua_State *L) {
 	fluid_settings_t* settings = new_fluid_settings();  /* api */
-	if (save_stderr == -1) { redirect_stderr(); }
+	/* redirect_stderr is called from lua so fluidsynth knows tmp_file */
 	lua_pushinteger(L, (lua_Integer)settings); 
 	return 1;
 }
@@ -63,7 +67,7 @@ static int c_new_fluid_settings(lua_State *L) {
 static int c_delete_fluid_settings(lua_State *L) {  /* settings */
 	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
 	delete_fluid_settings(settings);   /* void; returns nothing */
-	if (save_stderr != -1) { restore_stderr(); }
+	if (save_stderr != -1) { c_restore_stderr(); }
    	lua_pushinteger(L, 0);   /* FLUID_OK */
 	return 1;
 }
@@ -213,6 +217,30 @@ static int c_fluid_player_play(lua_State *L) {  /* player */
    	lua_pushinteger(L, rc);
 	return 1;
 }
+/*
+sourceforge.net/p/fluidsynth/code-git/ci/master/tree/fluidsynth/src/fluidsynth.c
+*/
+static int c_fast_render_loop(lua_State *L) {
+	fluid_settings_t* settings = (fluid_settings_t*)lua_tointeger(L, 1);
+	fluid_synth_t* synth       = (fluid_synth_t*)   lua_tointeger(L, 2);
+	fluid_player_t* player     = (fluid_player_t*)  lua_tointeger(L, 3);
+	fluid_file_renderer_t* renderer;
+	renderer = new_fluid_file_renderer (synth);
+	if (!renderer) return 0;
+	while (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
+/*
+   fluidsynth: error:
+     fluid_rvoice_event_dispatch: Unknown method (nil) to dispatch!
+
+   printf("FLUID_PLAYER_PLAYING = %d\n",FLUID_PLAYER_PLAYING);
+   Should usleep here for 0.1 sec or so, no ?
+*/
+		if (fluid_file_renderer_process_block(renderer) != FLUID_OK) { break; }
+	}
+	delete_fluid_file_renderer(renderer);
+   	lua_pushboolean(L, 1);
+	return 1;
+} 
 static int c_fluid_player_join(lua_State *L) {  /* player */
 	fluid_player_t* player = (fluid_player_t*)lua_tointeger(L, 1);
 	int rc = fluid_player_join(player);
@@ -331,11 +359,14 @@ static const luaL_Reg prv[] = {  /* private functions */
     {"new_fluid_player",           c_new_fluid_player},
     {"fluid_player_add",           c_fluid_player_add},
     {"fluid_player_play",          c_fluid_player_play},
+    {"fast_render_loop",           c_fast_render_loop},
     {"fluid_player_join",          c_fluid_player_join},
     {"fluid_player_stop",          c_fluid_player_stop},
     {"delete_fluid_player",        c_delete_fluid_player},
     {"fluid_is_soundfont",         c_fluid_is_soundfont},
     {"fluid_is_midifile",          c_fluid_is_midifile},
+    {"redirect_stderr",            c_redirect_stderr},
+    {"restore_stderr",             c_restore_stderr},
 	/* {"fluid_synth_pitch_bend_sens",c_fluid_synth_pitch_bend_sens}, */
     {NULL, NULL}
 };
