@@ -147,19 +147,27 @@ is not able to use the <I>set</I> commands); for example:
 </P><PRE>
  fluidsynth -f ~/.fluidsynth
 </PRE><P>
-This module only recognises two types of command;
-this is the format:
+This module only recognises <I>set</I>, <I>load</I> and <I>select</I> commands;
+see &nbsp; <I>man fluidsynth</I><BR>
+In this example, the <I>select</I> command chooses for channel <B>9</B>,
+from soundfont <B>1</B> (<I>Chaos4m.sf2</I>) the bank <B>127</B>
+patch <B>99</B>, which happens to be a percussion set,
+as you typically want on channel 9.<BR>
+This is the format:
 </P><PRE>
  set audio.driver alsa
  set synth.polyphony 1024
+ load /home/soundfonts/Chaos4m.sf2
  load /home/soundfonts/MyGM.sf2
  load /home/soundfonts/ReallyGoodPiano.sf2
+ select 9 1 127 99
 </PRE><P>
 Invoking the function
 <I>soundfonts = FS.read_config_file()</I>
 (before creating the first <I>synth</I>!)
 then changes the default settings for <I>audio.driver</I> and
-<I>synth.polyphony</I>, and returns an array of SoundFonts ready for
+<I>synth.polyphony</I>, and returns an array of <I>load</I> and
+<I>select</I> commands ready for
 later use by <I><A HREF="#sf_load">sf_load(synth,soundfonts)</A></I>
 </P></dd>
 
@@ -214,13 +222,16 @@ In the above example, <I>my_gm.sf2</I> is a good general-midi soundfont,
 except that <I>my_piano.sf2</I> offers a much nicer piano sound.
 </p><p>
 In practice, the array of soundfonts will usually be the output of a
-previous <I><A HREF="#read_config_file">read_config_file()</A></I> command.
+previous call to <I><A HREF="#read_config_file">read_config_file()</A></I><BR>
+Since version <B>1.7</B> it can include both <I>load</I> and <I>select</I>
+commands.
 </p><p>
 It returns an table where the keys are filenames of the soundfonts,
 and the values are the <I>soundfont_ids</I> that represent them.
 The <I>soundfont_ids</I> are stack indexes starting from 1;
 They are only needed if you want to invoke
-<I>fluid_synth_sfunload()</I> or <I>fluid_synth_sfreload()</I>,
+<I>fluid_synth_sfont_select()</I>, <I>fluid_synth_sfunload()</I>
+or <I>fluid_synth_sfreload()</I>,
 so in most cases you can ignore the return value.
 </p></dd>
 
@@ -406,7 +417,7 @@ so you should be able to install it with the command:</p>
  # luarocks install --server=http://rocks.moonscript.org fluidsynth</pre>
 <p>or:</p>
 <pre>
- # luarocks install http://www.pjb.com.au/comp/lua/fluidsynth-1.5-0.rockspec</pre>
+ # luarocks install http://www.pjb.com.au/comp/lua/fluidsynth-1.7-0.rockspec</pre>
 <p>It depends on the <I>fluidsynth</I> library and its header-files;
 for example on Debian you may need:
 </p><pre>
@@ -419,6 +430,7 @@ or on Centos you may need:</p><pre>
 <hr />
 <h2><a name="changes">CHANGES</a></h2>
 <pre>
+ 20140904 1.7 get both 'load' and 'select' commands from the config file
  20140901 1.6 delete_synth doesn't automatically remove TmpFile
  20140830 1.5 new_player knows '-' is stdin, and can play in-memory MIDI-data
  20140828 1.4 eliminate Settings2numSynths and M.delete_settings

@@ -7,8 +7,8 @@
 ---------------------------------------------------------------------
 
 local M = {} -- public interface
-M.Version     = '1.6' --  delete_synth doesn't automatically remove TmpFile
-M.VersionDate = '01sep2014'
+M.Version     = '1.7' --  get both 'load' and 'select' commands from config
+M.VersionDate = '04sep2014'
 
 local ALSA = nil -- not needed if you never use play_event
 
@@ -242,7 +242,8 @@ function M.read_config_file(filename)
 		else return nil, "can't find either "..userconf.." or "..sysconf
 		end
 	end
-	local soundfonts = {}
+	--- 1.7 return not just load but also select commands (eg for drumset)
+	local commands = {}
 	local config_file,msg = io.open(filename, 'r')
 	if not config_file then return nil,msg end   -- no config file
 	ConfigFileSettings = {}
@@ -262,14 +263,14 @@ function M.read_config_file(filename)
 				ConfigFileSettings[param] = val
 			end
 		else
-			local sf_file = string.match(line, '^%s*load%s*(%S+)%s*$')
-			if sf_file and M.is_soundfont(sf_file) then
-				table.insert(soundfonts, sf_file)
+			if   string.match(line, '^%s*load%s+%S+')  -- 1.7
+			  or string.match(line, '^%s*select%s+%d+') then
+				table.insert(commands, line)
 			end
 		end
 	end
 	config_file:close()
-	return soundfonts
+	return commands
 end
 
 function M.new_synth(arg)
@@ -313,17 +314,36 @@ function M.new_synth(arg)
 	end
 end
 
-function M.sf_load(synth, filenames )
-	if type(filenames) == 'string' then
+function M.sf_load( synth, commands )
+	if type(commands) == 'string' then
 		local sf_id = prv.fluid_synth_sfload(synth, filename)
 		if sf_id == FLUID_FAILED then return nil, M.synth_error(synth)
 		else return { sf_id } end
-	elseif type(filenames) == 'table' then
+	elseif type(commands) == 'table' then
+		--- 1.7 apply not just load but also select commands (eg for drumset)
 		local filename2sf_id = {}
-		for k,filename in ipairs(filenames) do
-			local sf_id = prv.fluid_synth_sfload(synth, filename)
-			if sf_id == FLUID_FAILED then return nil, M.synth_error(synth)
-			else filename2sf_id[filename] = sf_id
+		for k,line in ipairs(commands) do
+			if string.match(line, '^%s*load%s+%S+') then   -- 1.7
+				local filename = string.match(line, '^%s*load%s+(%S+)%s*$')
+				if filename and M.is_soundfont(filename) then
+					local sf_id = prv.fluid_synth_sfload(synth, filename)
+					-- print('filename =',filename, ' sf_id =',sf_id)
+					if sf_id==FLUID_FAILED then return nil,M.synth_error(synth)
+					else filename2sf_id[filename] = sf_id
+					end
+				end
+			elseif string.match(line, '^%s*select%s+%S+') then   -- 1.7
+				local cha, sf, bank, patch = string.match(line,
+				  '^%s*select%s+(%d+)%s+(%d+)%s+(%d+)%s+(%d+)%s*$')
+					-- print('cha=',cha,'sf=',sf,'bank=',bank,'patch=',patch)
+				if cha and sf and bank and patch then
+					-- must check synth.midi-bank-select! gm, gs, xg or mma ?
+					M.sf_select(synth, cha, sf)
+					M.control_change(synth, cha, 0, bank)
+					M.patch_change(synth, cha, patch)
+				else
+					return nil, 'config bad format: '..line
+				end
 			end
 		end
 		return filename2sf_id
@@ -561,290 +581,3 @@ end
 
 return M
 
---[[
-
-=pod
-
-=head1 NAME
-
-C<fluidsynth> - a Lua interface to the I<fluidsynth> library
-
-=head1 SYNOPSIS
-
- local FS = require 'fluidsynth'   -- convert midi to wav
- local soundfonts = FS.read_config_file()  -- default ~/.fluidsynth
- local synth1   = FS.new_synth(
-   ['synth.gain']      = 0.4,      -- be careful...
-   ['audio.driver']    = 'file',
-   ['audio.file.name'] = 'foo.wav',
-   ['fast.render']     = true,     -- not part of the C-library API
- } )
- local sf2id = FS.sf_load(synth1, soundfonts)
- local player1  = FS.new_player(synth1, 'foo.mid')
- assert(FS.player_play(player1))
- assert(FS.player_join(player1))   -- wait for foo.mid to finish
- os.execute('sleep 1')             -- don't chop final reverb
- FS.delete_synth(synth1) -- deletes player,audio_driver,synth,settings
-
- local FS   = require 'fluidsynth' -- an alsa-client soundfont-synth
- local ALSA = require 'midialsa'
- local soundfonts = FS.read_config_file('/unusual/config_file')
- ALSA.client( 'fluidsynth-alsa-client', 1, 0, false )
- ALSA.connectfrom( 0, 'ProKeys' )
- local synth2 = FS.new_synth( {
-   "audio.driver"      = "alsa",
-   "audio.periods"     = 2,   -- min, for low latency
-   "audio.period-size" = 64,  -- min, for low latency
- } )
- local sf2id = FS.sf_load(synth2, soundfonts)
- -- you will need to set a patch before any output can be generated!
- while true do
-   local alsaevent = ALSA.input()
-   if alsaevent[1]==ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then break end
-   FS.play_event(synth2, alsaevent)
- end
- FS.delete_synth(synth2)
-
-=head1 DESCRIPTION
-
-This Lua module offers a simplified calling interface
-to the Fluidsynth Library.
-
-It is in its early versions, and the API is expected to evolve.
-
-It is a relatively thick wrapper.
-Various higher-level FUNCTIONS are introduced,
-the library's voluminous output on I<stderr> has been redirected
-so the module can be used for example within a I<Curses> app,
-and the return codes on failure have adopted the I<nil,errormessage>
-convention of Lua so they can be used for example with I<assert()>.
-
-=head1 FUNCTIONS
-
-These functions wrap the I<fluidsynth> library functions
-in a way that retains functionality,
-but is easy to use and hides some of the dangerous internals.
-Unless otherwise stated,
-these functions all return I<nil,errormessage> on failure.
-
-=head3 synth = FS.new_synth({['synth.gain']=0.3, ['audio.driver']='alsa',})
-
-When called with no argument, or with a table argument,
-I<new_synth> wraps the library routines I<new_fluid_synth()>,
-invoking I<new_fluid_settings>, I<fluid_settings_setstr()>,
-I<fluid_settings_setnum()>, and I<fluid_settings_setint()>,
-and i<new_fluid_audio_driver()> automatically as needed.
-
-The return value is a C pointer to the I<synth>,
-so don't change that otherwise the library will crash.
-
-Multiple synths may be started.
-
-The meanings and permitted values of the various parameters are documented in
-http://fluidsynth.sourceforge.net/api/
-with just two additions:
-
-B<1)> If the I<audio.driver> parameter is set to "none"
-then FS.new_synth() will not automatically create an I<audio_driver>.
-You will not need this until support for I<midi_router> is introduced.
-
-B<2)> The I<fast.render> parameter is introduced.
-You should set it to I<true> if and only if
-you are converting MIDI to WAV and no real-time events are involved.
-If I<fast.render> is I<true> the conversion will be done at full CPU speed
-and will finish an order of magnitude quicker than real time.
-Look for I<fast_render> in I<src/fluidsynth.c> for example code.
-
-=head3 array_of_sf_ids = FS.sf_load(synth, {'my_gm.sf2', 'my_piano.sf2',})
-
-This wraps the library routine I<fluid_synth_sfload()>,
-calling it once for each soundfont.
-Often, a I<synth> has more than one soundfont;
-they go onto a sort of stack, and for a given patch,
-I<fluidsynth> will use that soundfont closest to the top of the
-stack which can supply the requested patch.
-In the above example, I<my_gm.sf2> is a good general-midi soundfont,
-except that I<my_piano.sf2> offers a much nicer piano sound.
-
-It returns a table of fsoundfont_ids, which are stack indexes
-starting from 1.
-These soundfont_ids are only needed if you want to invoke
-I<fluid_synth_sfunload()> or I<fluid_synth_sfreload()>,
-so in most cases you can ignore the return value.
-
-=head3 player = FS.new_player(synth, '/tmp/filename.mid')
-
-This wraps the library routines I<new_fluid_player()>
-and I<fluid_player_add()>,
-thus allowing you to play a midi file.
-The return value is a C pointer.
-
-One I<synth> may have multiple I<midi_players> running at the same time
-(eg: to play several midi files, each starting at a different moment).
-Therefore, you still need to call I<player_play(player)>,
-I<player_join(player)> and I<player_stop(player)> by hand.
-
-=head3 FS.delete_synth(synth)
-
-This does all the administrivia necessary to delete the I<synth>,
-invoking I<delete_fluid_player>, I<delete_fluid_audio_driver>,
-I<delete_fluid_synth> and I<delete_fluid_settings> as necessary.
-
-When called with no argument it deletes all running I<synths>.
-
-=head1 LOW-LEVEL FUNCTIONS YOU STILL NEED
-
-Unless otherwise stated,
-these functions all return I<nil,errormessage> on failure.
-
-=head3 parameter2default = FS.default_settings()
-
-Returns a table of all the supported parameters, with their default values.
-This could be useful, for example, in an application,
-to offer the user a menu of available parameters.
-
-The meanings and permitted values of the various parameters, are documented in
-http://fluidsynth.sourceforge.net/api/
-
-=head3 FS.player_play(midiplayer)
-
-This corresponds to the library routine I<fluid_player_play()>
-
-=head3 FS.player_join(midiplayer)
-
-This corresponds to the library routine I<fluid_player_join()>
-
-=head3 FS.player_stop(midiplayer)
-
-This corresponds to the library routine I<fluid_player_stop()>
-
-=head3 FS.note_on(synth, channel, note, velocity)
-
-This corresponds to the library routine I<fluid_synth_noteon()>
-
-=head3 FS.note_off(synth, channel, note, velocity)
-
-This corresponds to the library routine I<fluid_synth_noteoff()>
-
-=head3 FS.patch_change(synth, channel, patch)
-
-This corresponds to the library routine I<fluid_synth_program_change()>
-
-=head3 FS.control_change(synth, channel, controller, value)
-
-This corresponds to the library routine I<fluid_synth_cc()>
-
-=head3 FS.pitch_bend(synth, channel, val)
-
-This corresponds to the library routine I<fluid_synth_pitch_bend()>.
-The value should lie between 0 and 16383,
-where 8192 represents the default, central, pitch-wheel position.
-
-=head3 FS.play_event(synth, event)
-
-This is a wrapper for the above I<note_on>, I<note_off>, I<patch_change>,
-I<control_change> and I<pitch_bend routines>, which accepts events
-of two different types used in the author's other midi-related modules:
-
-1) MIDI 'opus' events, see: http://www.pjb.com.au/comp/lua/MIDI.html#events
-
-2) midialsa events, see: http://www.pjb.com.au/comp/lua/midialsa.html
-
-It will currently only handle real-time events,
-so every event received will be played immediately.
-It will currently not handle 'note' events (of either type).
-
-=head3 local ok = FS.is_soundfont(filename)
-
-This corresponds to the library routine I<fluid_is_soundfont()>
-which checks for the "RIFF" header in the file.
-It is useful only to distinguish between SoundFont and MIDI files.  
-It returns only I<true> or I<false>.
-
-=head3 local ok = FS.is_midifile(filename)
-
-This corresponds to the library routine I<fluid_is_midifile()>
-The current implementation only checks for the "MThd" header in the file.
-It is useful only to distinguish between SoundFont and MIDI files. 
-It returns only I<true> or I<false>.
-
-
-=head1 CONFIGURATION FILE
-
-The default configuration file is I<$HOME/.config/fluidsynth>
-which can also be used as a configuration file for the
-I<fluidsynth> executable, for example:
-
- fluidsynth -f ~/.config/fluidsynth
-
-But this module only recognises two types of command,
-the first of which is ignored by I<fluidsynth>.
-This is the format:
-
- audio.driver = alsa
- synth.polyphony = 1024
- load /home/soundfonts/MyGM.sf2
- load /home/soundfonts/ReallyGoodPiano.sf2
-
-Invoking the function I<soundfonts = FS.read_config_file()>
-(before creating the first I<synth>!)
-changes the default settings for I<audio.driver> and I<synth.polyphony>,
-and returns an array of Soundfonts
-ready for later use by I<sf_load(synth,soundfonts)>
-
-=head1 DOWNLOAD
-
-This module is available as a LuaRock in
-http://rocks.moonscript.org/modules/peterbillam
-so you should be able to install it with the command:
-
- $ su
- Password:
- # luarocks install --server=http://rocks.moonscript.org fluidsynth
-
-or:
-
- # luarocks install http://www.pjb.com.au/comp/lua/fluidsynth-1.2-0.rockspec
-
-It depends on the I<fluidsynth> library and its header-files;
-for example on Debian you may need:
-
- # aptitude install libfluidsynth libfluidsynth-dev
-
-or on Centos you may need:
-
- # yum install fluidsynth-devel
-
-=head1 CHANGES
-
- 20140901 1.6 delete_synth doesn't automatically remove TmpFile
- 20140830 1.5 new_player midifilename='-' means stdin
- 20140828 1.4 eliminate Settings2numSynths and M.delete_settings
- 20140827 1.3 use fluid_get_sysconf, fluid_get_userconf, config file 'set k v'
- 20140826 1.2 ~/.config/fluidsynth config file using  k = v
- 20140825 1.1 new calling-interface at much higher level
- 20140818 1.0 first working version 
-
-=head1 AUTHOR
-
-Peter Billam, 
-http://www.pjb.com.au/comp/contact.html
-
-=head1 SEE ALSO
-
-=over 3
-
- man fluidsynth
- /usr/include/fluidsynth.h
- /usr/include/fluidsynth/*.h
- http://fluidsynth.sourceforge.net/api/
- http://www.pjb.com.au
- http://www.pjb.com.au/comp/index.html#lua
- http://www.pjb.com.au/comp/lua/fluidsynth.html
- http://www.pjb.com.au/comp/lua/midialsa.html
- http://www.pjb.com.au/comp/lua/MIDI.html
-
-=back
-
-=cut
-]]

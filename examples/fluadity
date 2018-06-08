@@ -6,8 +6,8 @@
 --  This script is free software; you can redistribute it and/or   --
 --         modify it under the same terms as Lua5 itself.          --
 ---------------------------------------------------------------------
-local Version = '1.4'  -- as daemon, only run a synth if there are connections
-local VersionDate  = '01sep2014';
+local Version = '1.6'  -- if -s is given, still read the non-'load' config
+local VersionDate  = '03sep2014';
 local Synopsis = [[
  fluadity &                     # a simple alsa-client , o/p to soundcard
  fluadity -i ProKeys &          # likewise, and connects from the ProKeys
@@ -21,7 +21,7 @@ local Synopsis = [[
 ]]
 
 local FS = require 'fluidsynth'
-require 'DataDumper'
+-- require 'DataDumper'
 
 local Curses     = true
 local InputPort  = nil
@@ -65,7 +65,9 @@ end
 local InputFile  = arg[iarg]   -- fluidsynth.lua 1.5 knows '-' means stdin
 local OutputFile = arg[iarg+1]
 
-if #Soundfonts == 0 then
+if #Soundfonts > 0 then  -- 1.6
+	assert(FS.read_config_file(ConfigFile)) -- throw away config soundfonts
+else
 	Soundfonts = assert(FS.read_config_file(ConfigFile))
 end
 -- print(DataDumper(Soundfonts))
@@ -133,8 +135,21 @@ function daemon_client()
 				if P.getpid('ppid') == 1 then break end
 				P.nanosleep(0, 500000)   -- 0.5ms
 			end
+			function cleanup()
+				local tmpfile = FS.error_file_name()
+				if tmpfile then os.remove(tmpfile) end   -- 1.5
+				os.exit(0)
+			end
+			P.signal(P.SIGTERM, cleanup)
+			P.signal(P.SIGQUIT, cleanup)
+			P.signal(P.SIGINT,  cleanup)
 			ALSA.client( 'Fluadity', 1, 0, false )
 			local settings = {
+				-- ['synth.chorus.active'] = false,
+				-- ['synth.reverb.active'] = false,
+				-- 'audio.periods'=number of audio-buffers used by the driver
+				-- 'audio.periods' times 'audio.period-size'=buffer-size
+				--  determines the maximum latency of the audio driver.
 				['audio.periods']       = 2,   -- min, for low latency
 				['audio.period-size']   = 64,  -- min, for low latency
 				['audio.realtime-prio'] = 90,  -- big, lor low latency
@@ -142,8 +157,9 @@ function daemon_client()
 			local synth = nil
 			while true do  -- loop until killed
 				local alsaevent = ALSA.input()
-				-- 1.4 running an inactive synth wastes 7% CPU for nothing.
 				if alsaevent[1] == ALSA.SND_SEQ_EVENT_PORT_UNSUBSCRIBED then
+					-- 1.4 running an inactive synth burns 7% CPU
+					--     with chorus and reverb off it still burns 4.5%
 					local from = ALSA.listconnectedfrom()  -- 1.4
 					if #from == 0 and synth then
 						FS.delete_synth(synth)
